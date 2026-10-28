@@ -1,0 +1,12 @@
+{
+  "paraformer": {
+    "repository": "csukuangfj/sherpa-onnx-streaming-paraformer-bilingual-zh-en",
+    "revision": "8e40c43232a1c5c66c82111efc5820d3accca11b",
+    "source": "https://k2-fsa.github.io/sherpa/onnx/pretrained_models/online-paraformer/paraformer-models.html",
+    "files": [
+      {"name":"encoder.int8.onnx","size":165462184,"sha256":"81a70226a8934e6ed92aa1d4fc486b428b5398e2f2619ed4897b7294cab90e9a"},
+      {"name":"decoder.int8.onnx","size":71664561,"sha256":"f3cca9f77bb9d93c8fcbfb63ae617b6b1ee96818df3aa3b151c40658fe38594f"},
+      {"name":"tokens.txt","size":75756,"gitBlob":"57bc045ddda0434ed4440c38e14287c595b258d9"}
+    ]
+  }
+}
