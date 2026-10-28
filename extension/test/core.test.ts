@@ -39,3 +39,10 @@ test('authentication/protocol rejection is terminal, network and decoder-busy ca
  for(const code of [1008,4400,4401])expect(terminalClose(code)).toBe(true);
  for(const code of [1006,1011,4408,4429])expect(terminalClose(code)).toBe(false);
 });
+import { overlayVisible } from '../src/render';
+test('native video fullscreen and zero/offscreen bounds never claim visible subtitle rendering',()=>{
+ expect(overlayVisible(true,{left:0,top:0,right:500,bottom:300},800,600)).toBe(false);
+ expect(overlayVisible(false,{left:0,top:0,right:0,bottom:300},800,600)).toBe(false);
+ expect(overlayVisible(false,{left:900,top:0,right:1000,bottom:300},800,600)).toBe(false);
+ expect(overlayVisible(false,{left:0,top:0,right:500,bottom:300},800,600)).toBe(true);
+});

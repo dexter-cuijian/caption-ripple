@@ -1,5 +1,5 @@
 import {RevisionGate} from './core';
-import {renderAndConfirm} from './render';
+import {renderAndConfirm,overlayVisible} from './render';
 import {defaults,send,type Config,type VideoInfo} from './shared';
 const sentinel='__localCaptionInstalled';
 if(!(globalThis as any)[sentinel]){
@@ -40,7 +40,7 @@ if(!(globalThis as any)[sentinel]){
  function schedule(){if(!pending){pending=true;requestAnimationFrame(()=>{pending=false;scan();});}}
  new MutationObserver(records=>{if(records.some(r=>[...r.addedNodes].some(n=>n instanceof Element&&(n.tagName==='IFRAME'||n.querySelector('iframe')))))void send('background','frames-changed').catch(()=>{});if(records.some(r=>r.target!==host&&!shadow.contains(r.target)))schedule();}).observe(document.documentElement,{childList:true,subtree:true});
  document.addEventListener('fullscreenchange',position);window.addEventListener('resize',position);window.addEventListener('scroll',position,{passive:true});
- setInterval(()=>{if(location.href!==lastUrl){lastUrl=location.href;if(selected)void send('background','video-event',{video:info(selected),reason:'navigation'});}if(enabled)scan();},1000);
+ setInterval(()=>{if(location.href!==lastUrl){lastUrl=location.href;if(selected)void send('background','video-event',{video:info(selected),reason:'navigation'});}if(sessionId)scan();},1000);
  chrome.runtime.onMessage.addListener((message,_sender,reply)=>{
   if(message.target!=='content')return;
   if(message.kind==='inspect')scan();
@@ -52,10 +52,10 @@ if(!(globalThis as any)[sentinel]){
    enabled=!!selected||(!message.id&&window===window.top);position();
   }
   if(message.kind==='epoch'){sessionId=message.sessionId;epoch=message.epoch;gate.reset(sessionId,epoch);text.textContent='';currentEvent=undefined;}
-  if(message.kind==='clear'){enabled=false;text.textContent='';host.remove();}
+  if(message.kind==='clear'){enabled=false;sessionId='';text.textContent='';host.remove();}
   if(message.kind==='subtitle'&&enabled&&gate.accept(message.event)){
    const event=message.event;currentEvent=event;text.textContent=event.sourceText;position();
-   renderAndConfirm(()=>currentEvent===event&&host.isConnected&&!text.hidden&&document.visibilityState==='visible',()=>{void send('background','rendered',{event:{type:'rendered',sessionId:event.sessionId,epoch:event.epoch,segmentId:event.segmentId,revision:event.revision,renderedAt:Date.now(),hasTranslation:false}});});
+   renderAndConfirm(()=>currentEvent===event&&host.isConnected&&!text.hidden&&document.visibilityState==='visible'&&overlayVisible(document.fullscreenElement instanceof HTMLVideoElement,host.getBoundingClientRect(),innerWidth,innerHeight)&&overlayVisible(false,text.getBoundingClientRect(),innerWidth,innerHeight),()=>{void send('background','rendered',{event:{type:'rendered',sessionId:event.sessionId,epoch:event.epoch,segmentId:event.segmentId,revision:event.revision,renderedAt:Date.now(),hasTranslation:false}});});
   }
   reply({ok:true});
  });scan();

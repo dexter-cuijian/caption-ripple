@@ -1,5 +1,6 @@
+import {VideoRegistry} from './registry';
 import {defaults,initialState,send,type State,type VideoInfo} from './shared';
-let state:State={...initialState},videos=new Map<string,VideoInfo>(),selected='',manual=false;
+let state:State={...initialState},videos=new VideoRegistry(),selected='',manual=false;
 let offscreenCreating:Promise<void>|undefined;
 async function offscreen(){
  if(await chrome.offscreen.hasDocument())return;
@@ -10,12 +11,12 @@ async function broadcast(kind:string,extra:Record<string,unknown>={}){
  await chrome.tabs.sendMessage(state.tabId,{target:'content',kind,...extra}).catch(()=>{});
 }
 async function choose(){
- const candidates=[...videos.values()].sort((a,b)=>(Number(a.paused)-Number(b.paused))||b.area-a.area);
+ const candidates=videos.candidates();
  const previous=selected;
- if(!manual||!videos.has(selected))selected=candidates[0]?`${candidates[0].frameId}:${candidates[0].id}`:'';
- const current=videos.get(selected);state.video=current;state.videos=candidates;
+ const current=videos.choose(selected,manual);
+ selected=current?`${current.frameId}:${current.id}`:'';state.video=current;state.videos=candidates;
  await broadcast('select',{id:current?.id,frameId:current?.frameId,config:(await chrome.storage.sync.get(defaults)),sessionId:state.sessionId,epoch:state.epoch});
- if(current)await send('offscreen','video',{video:current,reset:previous&&previous!==selected?'video-change':undefined}).catch(()=>{});
+ await send('offscreen','video',{video:current,reset:previous&&previous!==selected?'video-change':undefined}).catch(()=>{});
 }
 async function start(){
  const [tab]=await chrome.tabs.query({active:true,currentWindow:true});
@@ -42,8 +43,7 @@ chrome.runtime.onMessage.addListener((message,sender,reply)=>{
   if(message.kind==='subtitle')await broadcast('subtitle',{event:message.event});
   if(message.kind==='frames-changed'&&sender.tab?.id===state.tabId&&state.tabId)await chrome.scripting.executeScript({target:{tabId:state.tabId,allFrames:true},files:['content.js']}).catch(()=>{});
   if(message.kind==='videos'&&sender.tab?.id===state.tabId){
-   for(const [key,value] of videos)if(value.frameId===sender.frameId)videos.delete(key);
-   for(const v of message.videos)videos.set(`${sender.frameId}:${v.id}`,{...v,frameId:sender.frameId});await choose();
+   videos.report(sender.frameId??0,message.videos);await choose();
   }
   if(message.kind==='select-video'){manual=true;selected=message.id;await choose();}
   if(message.kind==='video-event'&&sender.tab?.id===state.tabId&&selected===`${sender.frameId}:${message.video.id}`){state.video={...message.video,frameId:sender.frameId};await send('offscreen','video',{video:state.video,reset:message.reason});}
@@ -53,4 +53,4 @@ chrome.runtime.onMessage.addListener((message,sender,reply)=>{
  })().then(reply,error=>{state={...state,phase:'error',message:String(error)};reply(state);});return true;
 });
 chrome.tabs.onRemoved.addListener(tabId=>{if(tabId===state.tabId){void send('offscreen','stop');state={...initialState};}});
-chrome.tabs.onUpdated.addListener((tabId,change)=>{if(tabId===state.tabId&&change.status==='complete'&&state.phase!=='idle')void chrome.scripting.executeScript({target:{tabId,allFrames:true},files:['content.js']}).catch(()=>{});});
+chrome.tabs.onUpdated.addListener((tabId,change)=>{if(tabId===state.tabId&&change.status==='loading'){videos.clear();manual=false;void choose();}if(tabId===state.tabId&&change.status==='complete'&&state.phase!=='idle')void chrome.scripting.executeScript({target:{tabId,allFrames:true},files:['content.js']}).catch(()=>{});});

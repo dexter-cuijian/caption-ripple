@@ -40,11 +40,15 @@ function connect(){
 async function stop(){
  active=false;accepted=false;clearTimeout(retry);
  if(socket?.readyState===WebSocket.OPEN)socket.send(JSON.stringify({type:'stop',sessionId,epoch}));socket?.close();socket=undefined;
- worklet?.disconnect();source?.disconnect();silent?.disconnect();stream?.getTracks().forEach(t=>t.stop());await context?.close();context=undefined;stream=undefined;
+ if(worklet)worklet.port.onmessage=null;
+ for(const node of [worklet,source,silent])try{node?.disconnect();}catch{}
+ stream?.getTracks().forEach(t=>t.stop());
+ if(context){context.onstatechange=null;try{await context.close();}catch{}}context=undefined;stream=undefined;worklet=undefined;source=undefined;silent=undefined;
  publish({...initialState});
 }
 async function start(message:any){
- await stop();config={...defaults,...message.config};token=message.token;sessionId=message.sessionId;epoch=0;revisions.reset(sessionId,epoch);video=message.video;
+ await stop();seq=0;sampleStart=0;anchor=null;attempt=0;contextWall=0;config={...defaults,...message.config};token=message.token;sessionId=message.sessionId;epoch=0;revisions.reset(sessionId,epoch);video=message.video;
+ try{
  stream=await navigator.mediaDevices.getUserMedia({audio:{mandatory:{chromeMediaSource:'tab',chromeMediaSourceId:message.streamId}} as MediaTrackConstraints,video:false});
  context=new AudioContext();await context.audioWorklet.addModule(chrome.runtime.getURL('worklet.js'));await context.resume();
  context.onstatechange=()=>publish({contextState:context?.state??'none'});
@@ -60,11 +64,12 @@ async function start(message:any){
   if(socket.bufferedAmount>64000){reset('音频发送积压，重新同步');return;}
   if(anchor===null)anchor=contextWall+data.contextTime*1000-100;
   const capturedAt=anchor+(sampleStart+1600)/16;
-  const mediaTime=video?.currentTime==null?null:video.currentTime+(capturedAt-video.observedAt)/1000*video.playbackRate-0.1*video.playbackRate;
+  const mediaTime=video?.currentTime==null?null:video.currentTime+(capturedAt-video.observedAt)/1000*video.playbackRate;
   socket.send(JSON.stringify({type:'clock',sessionId,epoch,seq:seq++,capturedAt,sampleStart,mediaTime,playbackRate:video?.playbackRate??1,paused:false}));
   socket.send(data.pcm);sampleStart+=1600;publish({framesSent:state.framesSent+1600});
  };
  stream.getAudioTracks()[0].onended=()=>{void stop();};active=true;publish({outputConnected:true});connect();
+ }catch(error){await stop();throw error;}
 }
 chrome.runtime.onMessage.addListener((message,_sender,reply)=>{
  if(message.target!=='offscreen')return;
