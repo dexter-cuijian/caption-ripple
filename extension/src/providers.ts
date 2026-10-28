@@ -37,27 +37,36 @@ export class LocalModelTranslationProvider implements TranslationProvider,Correc
  },2900,signal);
  }
 }
+/** Necessary lexical checks only. Passing never proves semantic equivalence or ASR correctness. */
 export function correctionSafe(source:string,candidate:string,target:string){
- if(!candidate.trim())return false;const numbers=(text:string)=>[...text.normalize('NFKC').matchAll(/\d+(?:[.,]\d+)*(?:%)?/g)].map(match=>match[0]);const expected=numbers(source),actual=numbers(candidate);
+ if(!candidate.trim())return false;
+ const numbers=(text:string)=>[...text.normalize('NFKC').replace(/[−﹣‒–—]/g,'-').replace(/(?:minus|negative)\s+(?=\d)/gi,'-').replace(/(?:plus|positive)\s+(?=\d)/gi,'+').replace(/负(?=\d)/g,'-').replace(/正(?=\d)/g,'+').replace(/(\d)\s*(?:percent|per cent)\b/gi,'$1%').replace(/(\d)\s*%/g,'$1%').matchAll(/[+-]?\d+(?:[.,]\d+)*(?:%)?/g)].map(match=>match[0]);
+ const expected=numbers(source),actual=numbers(candidate);
  if(expected.some(number=>!actual.includes(number))||actual.some(number=>!expected.includes(number)))return false;
+ const englishNegation=/\b(?:not|no|never|neither|without|cannot|unable|lack(?:s|ed|ing)?|fail(?:s|ed|ing)?)\b|n['’]t\b/i;
+ // Lexical/discourse uses do not by themselves assert a negative predicate.
+ const predicateSource=source.replace(/不过|不仅|不但|不论|不管|不妨|不久|不错|不凡|不约而同|未来/g,'');
+ const chineseNegation=/[不未]\s*(?=[\p{Script=Han}A-Za-z])|没有|没能|无需|无权|无法|无力|无效|缺乏|缺少/u;
  if(target==='en'){
- if(/没有|不是|不能|不会|未曾|从未|不再|不应|并不|不得|无需|无权/.test(source)&&!(/\b(?:not|no|never|neither|without|cannot)\b|n['’]t\b/i.test(candidate)))return false;
+ if(chineseNegation.test(predicateSource)&&!englishNegation.test(candidate))return false;
  if(/比.{1,50}更/.test(source)&&!/\bthan\b|\bexceed|\bout(?:number|perform|weigh)|\bcompared\b/i.test(candidate))return false;
- }else if(/\b(?:not|no|never|without|cannot)\b|n['’]t\b/i.test(source)&&!/[不没未无非]/.test(candidate))return false;
+ }else if(englishNegation.test(source)&&!/[不没未无非]|缺乏|缺少/.test(candidate))return false;
  return true;
 }
+
 export class ContextProofreader{
  private session='';private epoch=0;private generation=0;private paused=false;private busy=false;private controller:AbortController|undefined;
+ private preempted=new WeakSet<AbortController>();
  private previous:any;private queue:any[]=[];private drafts=new Map<string,TranslationEvent>();private latest=new Map<string,number>();
  constructor(private provider:CorrectionProvider,private emit:(event:TranslationEvent)=>void,private failure:(event:any)=>void){}
  reset(session:string,epoch:number){this.controller?.abort();this.generation++;this.session=session;this.epoch=epoch;this.busy=false;this.paused=false;this.queue=[];this.previous=undefined;this.drafts.clear();this.latest.clear();}
  recordDraft(event:TranslationEvent){if(event.sessionId===this.session&&event.epoch===this.epoch&&(event.translationRevision??1)===1){this.drafts.set(event.segmentId,event);void this.drain();}}
  observe(event:any,targetLanguage:string){if(event.phase!=='final'||event.sessionId!==this.session||event.epoch!==this.epoch)return;
  this.latest.set(event.segmentId,event.revision);
- if(this.previous&&this.previous.segmentId!==event.segmentId){const task={previous:this.previous,next:event.sourceRaw??event.sourceText,targetLanguage};if(this.queue.length>=2){const dropped=this.queue.shift();this.failure({...dropped.previous,sourceRevision:dropped.previous.revision,targetLanguage:dropped.targetLanguage,error:'本轮校对跳过：新字幕优先，校对队列已满',proofreadingState:'skipped'});}this.queue.push(task);}
+ if(this.previous&&this.previous.segmentId!==event.segmentId){const task={previous:this.previous,next:event.sourceRaw??event.sourceText,targetLanguage};if(this.queue.length>=2){const dropped=this.queue.shift();this.failure({...dropped.previous,sourceRevision:dropped.previous.revision,targetLanguage:dropped.targetLanguage,error:'本轮校对未采用，保留初稿：新字幕优先，校对队列已满',proofreadingState:'skipped'});}this.queue.push(task);}
  this.previous=event;void this.drain();
  }
- prioritizeDraft(active:boolean){this.paused=active;if(active)this.controller?.abort();else void this.drain();}
+ prioritizeDraft(active:boolean){this.paused=active;if(active&&this.controller){this.preempted.add(this.controller);this.controller.abort();}else if(!active)void this.drain();}
  private async drain(){
  if(this.busy||this.paused||!this.queue.length)return;const task=this.queue[0],draft=this.drafts.get(task.previous.segmentId);if(!draft)return;
  this.queue.shift();this.busy=true;const generation=this.generation;const controller=new AbortController();this.controller=controller;const previous=task.previous,startedAt=Date.now();
@@ -66,7 +75,7 @@ export class ContextProofreader{
  if(generation!==this.generation||controller.signal.aborted||this.latest.get(previous.segmentId)!==previous.revision)return;
  if(!correctionSafe(previous.sourceRaw??previous.sourceText,text,task.targetLanguage)){this.failure({...previous,sourceRevision:previous.revision,targetLanguage:task.targetLanguage,error:'本轮校对未采纳：数字、否定或比较结构守门未通过',proofreadingState:'rejected'});return;}
  this.emit({type:'translation',sessionId:previous.sessionId,epoch:previous.epoch,segmentId:previous.segmentId,sourceRevision:previous.revision,translationRevision:2,targetLanguage:task.targetLanguage,text,engine:'local-hy-mt2/context',phase:'final',startedAt,completedAt:Date.now()});
- }catch(error){if(generation===this.generation){if(controller.signal.aborted&&this.paused){if(this.queue.length<2)this.queue.unshift(task);}else if(!controller.signal.aborted)this.failure({...previous,sourceRevision:previous.revision,targetLanguage:task.targetLanguage,error:`本机校对暂停：${String(error)}`,proofreadingState:'paused'});}}
+ }catch(error){if(generation===this.generation){if(controller.signal.aborted&&this.preempted.has(controller)){if(this.queue.length<2)this.queue.unshift(task);else this.failure({...previous,sourceRevision:previous.revision,targetLanguage:task.targetLanguage,error:'本轮校对未采用，保留初稿：新字幕优先，已放弃被抢占的最旧校对',proofreadingState:'skipped'});}else if(!controller.signal.aborted)this.failure({...previous,sourceRevision:previous.revision,targetLanguage:task.targetLanguage,error:`本机校对暂停：${String(error)}`,proofreadingState:'paused'});}}
  finally{if(generation===this.generation){this.busy=false;this.controller=undefined;if(!this.paused)void this.drain();}}
  }
 }

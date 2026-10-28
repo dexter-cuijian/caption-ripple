@@ -53,3 +53,21 @@ test('late native create after timeout is destroyed rather than installed in the
  const request=provider.prepare('zh','en');const rejected=expect(request).rejects.toThrow('超时');await vi.advanceTimersByTimeAsync(110);await rejected;
  resolveCreate({translate:async()=>'',destroy:destroyed});await vi.advanceTimersByTimeAsync(1);expect(destroyed).toHaveBeenCalledOnce();
 });
+test('correction guard preserves signed values, Unicode signs, percent units and ordinary Chinese negation',()=>{
+ for(const[source,candidate]of [['收益为-3%','The yield was 3%.'],['收益为−3％','The yield was +3%.'],['收益为＋3%','The yield was -3%.'],['不增长20%','Growth of 20%.'],['未增长20%','Growth of 20%.'],['收益为-3%','The yield was -3.']])expect(correctionSafe(source,candidate,'en')).toBe(false);
+ for(const[source,candidate]of [['收益为−3％','The yield was -3%.'],['收益为＋3%','The yield was +3%.'],['不增长20%','It does not grow by 20%.'],['未增长20%','It failed to grow by 20%.'],['不增长20%','There is no growth of 20%.'],['不过增长20%','However, it grew by 20%.'],['未来增长20%','Future growth of 20%.']])expect(correctionSafe(source,candidate,'en')).toBe(true);
+});
+test('preempting active correction when two waiters exist explicitly skips oldest active row and keeps two waiters',async()=>{
+ const failures:any[]=[],calls:string[]=[];const completions:Array<(s:string)=>void>=[];
+ const checker=new ContextProofreader({proofread:async(previous)=>{calls.push(previous);return new Promise(resolve=>completions.push(resolve));}},()=>{},event=>failures.push(event));
+ checker.reset('s',1);for(const id of ['a','b','c','d']){const source={...final(id),sourceText:`sentence ${id}`};checker.recordDraft({...source,sourceRevision:1,text:`draft ${id}`}as any);checker.observe(source,'en');}
+ await Promise.resolve();expect(calls).toEqual(['sentence a']);checker.prioritizeDraft(true);await new Promise(resolve=>setTimeout(resolve,0));
+ expect(failures).toContainEqual(expect.objectContaining({segmentId:'a',proofreadingState:'skipped',error:expect.stringContaining('保留初稿')}));
+ checker.prioritizeDraft(false);await Promise.resolve();expect(calls).toEqual(['sentence a','sentence b']);completions[1]('sentence b corrected');await new Promise(resolve=>setTimeout(resolve,0));expect(calls).toEqual(['sentence a','sentence b','sentence c']);completions[2]('sentence c corrected');await new Promise(resolve=>setTimeout(resolve,0));expect(calls).toHaveLength(3);checker.reset('s',2);
+});
+test('a fast draft unpausing before aborted continuation requeues correction instead of silently losing it',async()=>{
+ const calls:string[]=[],failures:any[]=[];let complete:(text:string)=>void=()=>{};
+ const checker=new ContextProofreader({proofread:async(previous)=>{calls.push(previous);return new Promise(resolve=>{complete=resolve;});}},()=>{},event=>failures.push(event));
+ checker.reset('s',1);checker.observe(final('1'),'en');checker.recordDraft({...final('1'),sourceRevision:1,text:'No growth of 20%'}as any);checker.observe(final('2'),'en');await Promise.resolve();
+ checker.prioritizeDraft(true);checker.prioritizeDraft(false);await new Promise(resolve=>setTimeout(resolve,0));expect(calls).toHaveLength(2);expect(failures).toHaveLength(0);complete('No growth of 20%.');await new Promise(resolve=>setTimeout(resolve,0));checker.reset('s',2);
+});
