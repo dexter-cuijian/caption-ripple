@@ -17,7 +17,7 @@ for (const file of paraformer.files) {
   const partial=`${target}.partial`;
   console.log(`下载 ${file.name} (${(file.size/1048576).toFixed(1)} MiB)`);
   await new Promise((resolve,reject)=> {
-    const child=spawn('curl',['--fail','--location','--retry','3','--connect-timeout','20','--max-time','900','--output',partial,url],{stdio:'inherit'});
+    const child=spawn('curl',['--fail','--location','--retry','3','--continue-at','-','--connect-timeout','20','--max-time','900','--output',partial,url],{stdio:'inherit'});
     child.on('error',reject);child.on('exit',code=>code===0?resolve():reject(new Error(`curl exit ${code}`)));
   });
   if(!verifyArtifact(await readFile(partial),file)) {await rm(partial,{force:true});throw new Error(`${file.name} 校验失败，未启用模型`);}
