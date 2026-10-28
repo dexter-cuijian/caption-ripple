@@ -1,3 +1,4 @@
+import{emptyGlossary,validateGlossary,matchGlossary,protectTerms,restoreTerms,hotwordsFor,type GlossaryState,type GlossaryEntry}from'./glossary';
 import{NativeTranslationProvider,LocalModelTranslationProvider,ContextProofreader,withDeadline}from'./providers';
 import{displaySource}from'./display';
 import {translationMatches}from'./render';
@@ -7,12 +8,14 @@ import {defaults, initialState,send, type Config,type VideoInfo} from './shared'
 let context:AudioContext|undefined,stream:MediaStream|undefined,source:MediaStreamAudioSourceNode|undefined,worklet:AudioWorkletNode|undefined,silent:GainNode|undefined;
 let socket:WebSocket|undefined,retry:ReturnType<typeof setTimeout>|undefined,active=false,accepted=false,attempt=0;
 let sessionId='',epoch=0,seq=0,sampleStart=0,anchor:number|null=null,contextWall=0;
-let latestSource:any;
+let latestSource:any;let glossary:GlossaryState=emptyGlossary,captureScopeUrl='';
+const scopeUrl=()=>video?.url||captureScopeUrl;
+const matched=(text:string,source:string,target:string)=>matchGlossary(text,glossary.entries,source,target,scopeUrl());
 let config:Config=defaults,token='',video:VideoInfo|undefined;
 let state:import('./shared').State={...initialState};const revisions=new RevisionGate();
 const publish=(update:Partial<typeof state>)=>{state={...state,...update,sessionId,epoch,contextState:context?.state??'none'};void send('background','state',{state}).catch(()=>{});};
 
-const nativeProvider=new NativeTranslationProvider(translatorAPI),localProvider=new LocalModelTranslationProvider(()=>token);
+const nativeProvider=new NativeTranslationProvider(translatorAPI),localProvider=new LocalModelTranslationProvider(()=>token,fetch,matched);
 let draftEngine='chrome-translator';
 function translationCompleted(event:import('./history').TranslationEvent){
  publish({...(translationMatches(latestSource,event,state.latestTranslationRevision??0)?{latestTranslation:event.text,latestTranslationRevision:event.translationRevision??1}:{}),translationStatus:'ready',translationError:undefined});
@@ -20,15 +23,17 @@ function translationCompleted(event:import('./history').TranslationEvent){
  void send('background','translation',{event:{...event,engine:event.engine??draftEngine}}).then(response=>{if(response?.error)throw new Error(response.error);}).catch(error=>publish({translationError:String(error)}));
 }
 const proofreader=new ContextProofreader(localProvider,event=>{publish({proofreadingStatus:'revised',proofreadingError:undefined});translationCompleted(event);},event=>{publish({proofreadingStatus:event.proofreadingState,proofreadingError:event.error});void send('background','proofreading-failed',{event}).catch(()=>{});});
-async function translateDraft(text:string,sourceLanguage:string,targetLanguage:string,signal?:AbortSignal){
+async function translateDraft(text:string,sourceLanguage:string,targetLanguage:string,signal?:AbortSignal,override?:{entries:GlossaryEntry[];url:string}){
+ const matches=override?matchGlossary(text,override.entries,sourceLanguage,targetLanguage,override.url):matched(text,sourceLanguage,targetLanguage);const protectedTerms=protectTerms(text,matches);
+ const local=override?new LocalModelTranslationProvider(()=>token,fetch,(raw,source,target)=>matchGlossary(raw,override.entries,source,target,override.url)):localProvider;
  if(config.translationEngine==='off')throw new Error('翻译已关闭；原文保存在历史中');
  if(config.translationEngine!=='local'){
- try{const result=await nativeProvider.translate(text,sourceLanguage,targetLanguage,signal);draftEngine='chrome-translator';publish({translationContext:'offscreen',translationError:undefined});return result;}
- catch(error){if(signal?.aborted)throw error;
+ try{const result=restoreTerms(await nativeProvider.translate(protectedTerms.text,sourceLanguage,targetLanguage,signal),protectedTerms);draftEngine='chrome-translator';publish({translationContext:'offscreen',translationError:undefined,glossaryStatus:matches.length?'术语占位符已按数量恢复；译文仍需核验':undefined});return result;}
+ catch(error){if(signal?.aborted)throw error;if(matches.length)publish({glossaryStatus:'Chrome 术语保护未完成，正在尝试侧栏或本机回退'});
  const requestId=crypto.randomUUID();const abort=()=>{void send('background','cancel-panel-translation',{requestId}).catch(()=>{});};signal?.addEventListener('abort',abort,{once:true});
- try{const response=await withDeadline(()=>send('background','panel-translate',{requestId,text,sourceLanguage,targetLanguage}),3000,signal,abort);if(response?.ok){draftEngine='chrome-translator/panel';publish({translationContext:'panel'});return response.text;}}catch(error){if(signal?.aborted)throw error;}finally{signal?.removeEventListener('abort',abort);}
+ try{const response=await withDeadline(()=>send('background','panel-translate',{requestId,text:protectedTerms.text,sourceLanguage,targetLanguage}),3000,signal,abort);if(response?.ok){draftEngine='chrome-translator/panel';publish({translationContext:'panel'});return restoreTerms(response.text,protectedTerms);}}catch(error){if(signal?.aborted)throw error;}finally{signal?.removeEventListener('abort',abort);}
  }}
- const result=await localProvider.translate(text,sourceLanguage,targetLanguage,signal);draftEngine='local-hy-mt2';publish({translationContext:'local',translationError:undefined});return result;
+ try{const result=await local.translate(text,sourceLanguage,targetLanguage,signal);draftEngine='local-hy-mt2';publish({translationContext:'local',translationError:undefined,glossaryStatus:matches.length?'已由本机处理指定术语；未经人工核验':undefined});return result;}catch(error){if(matches.length)throw new Error(`术语保护未完成，保留原文名称；本机回退失败：${String(error)}`);throw error;}
 }
 const translations=new FinalTranslator({translate:translateDraft},translationCompleted,event=>{
  publish({translationStatus:'unavailable',translationError:event.error});void send('background','translation-failed',{event}).catch(()=>{});
@@ -37,14 +42,14 @@ const translations=new FinalTranslator({translate:translateDraft},translationCom
 function reset(reason:string){
  latestSource=undefined;const previousEpoch=epoch;epoch++;revisions.reset(sessionId,epoch);translations.reset(sessionId,epoch);proofreader.reset(sessionId,epoch);seq=0;sampleStart=0;anchor=null;accepted=false;
  publish({latestText:'',latestTranslation:'',translationError:undefined,latestTranslationRevision:0,latestDisplayText:'',message:reason});
- if(socket?.readyState===WebSocket.OPEN)socket.send(JSON.stringify({type:'reset',sessionId,epoch,mediaTime:video?.currentTime??null,sourceLanguage:config.sourceLanguage,reason}));
+ if(socket?.readyState===WebSocket.OPEN)socket.send(JSON.stringify({type:'reset',sessionId,epoch,mediaTime:video?.currentTime??null,sourceLanguage:config.sourceLanguage,hotwords:hotwordsFor(glossary.entries,config.sourceLanguage,scopeUrl()),reason}));
  void send('background','epoch',{sessionId,epoch,previousEpoch}).catch(()=>{});
 }
 function connect(){
  if(!active)return;
  publish({phase:attempt?'reconnecting':'connecting',message:attempt?'正在重新连接本地服务':'正在连接本地服务'});
  socket=new WebSocket(config.wsUrl);const thisSocket=socket;
- socket.onopen=()=>{socket?.send(JSON.stringify({type:'hello',protocolVersion:1,token,sessionId,epoch,sourceLanguage:config.sourceLanguage,targetLanguage:config.targetLanguage,mode:'fast',video:video??{id:'viewport',url:'',title:'',currentTime:null,live:true,playbackRate:1}}));};
+ socket.onopen=()=>{socket?.send(JSON.stringify({type:'hello',protocolVersion:1,token,sessionId,epoch,sourceLanguage:config.sourceLanguage,targetLanguage:config.targetLanguage,hotwords:hotwordsFor(glossary.entries,config.sourceLanguage,scopeUrl()),mode:'fast',video:video??{id:'viewport',url:'',title:'',currentTime:null,live:true,playbackRate:1}}));};
  socket.onmessage=(event)=>{
   if(socket!==thisSocket)return;
   try{
@@ -52,7 +57,7 @@ function connect(){
    if(data.sessionId&&data.sessionId!==sessionId)return;
    if(data.epoch!==undefined&&data.epoch!==epoch)return;
    if(data.type==='ready'||data.type==='reset'){accepted=true;attempt=0;publish({phase:'running',message:'正在识别原文'});}
-   if(data.type==='subtitle'&&revisions.accept(data)){data.sourceRaw=data.sourceText;data.displaySourceText=displaySource(data.sourceText,data.phase,data.splitReason);latestSource=data;publish({latestText:data.sourceText,latestDisplayText:data.displaySourceText,latestTranslation:'',latestTranslationRevision:0});const targetLanguage=config.targetLanguage;void send('background','subtitle',{event:{...data,targetLanguage,translationState:config.translationEngine==='off'?'disabled':undefined}}).then(response=>{if(response?.error)throw new Error(response.error);if(data.phase==='final'&&config.translationEngine!=='off'){translations.enqueue(data,targetLanguage);if(config.proofreading)proofreader.observe(data,targetLanguage);publish({languageLock:translations.language.locked??undefined});}}).catch(error=>publish({translationError:`字幕保存失败：${String(error)}`}));}
+   if(data.type==='subtitle'&&revisions.accept(data)){data.sourceRaw=data.sourceText;data.glossaryVersion=glossary.version;data.matchedTerms=matched(data.sourceText,data.sourceLanguage==='auto'?(/[\u3400-\u9fff]/.test(data.sourceText)?'zh':'en'):data.sourceLanguage,config.targetLanguage);data.displaySourceText=displaySource(data.sourceText,data.phase,data.splitReason);latestSource=data;publish({latestText:data.sourceText,latestDisplayText:data.displaySourceText,latestTranslation:'',latestTranslationRevision:0});const targetLanguage=config.targetLanguage;void send('background','subtitle',{event:{...data,targetLanguage,translationState:config.translationEngine==='off'?'disabled':undefined}}).then(response=>{if(response?.error)throw new Error(response.error);if(data.phase==='final'&&config.translationEngine!=='off'){translations.enqueue(data,targetLanguage);if(config.proofreading)proofreader.observe(data,targetLanguage);publish({languageLock:translations.language.locked??undefined});}}).catch(error=>publish({translationError:`字幕保存失败：${String(error)}`}));}
    if(data.type==='status'){if(data.level==='error')accepted=false;publish({phase:data.level==='error'?'error':state.phase,message:data.message||data.code});if(data.code==='audio_overload')reset('识别队列积压，重新同步');}
   }catch(error){publish({message:`服务响应错误：${String(error)}`});}
  };
@@ -75,7 +80,7 @@ async function stop(){
  publish({...initialState});
 }
 async function start(message:any){
- await stop();seq=0;sampleStart=0;anchor=null;attempt=0;contextWall=0;config={...defaults,...message.config};token=message.token;sessionId=message.sessionId;epoch=0;revisions.reset(sessionId,epoch);translations.reset(sessionId,epoch);proofreader.reset(sessionId,epoch);video=message.video;
+ await stop();seq=0;sampleStart=0;anchor=null;attempt=0;contextWall=0;config={...defaults,...message.config};glossary={version:message.glossary?.version??0,entries:validateGlossary(message.glossary?.entries??[])};captureScopeUrl=message.scopeUrl??'';token=message.token;sessionId=message.sessionId;epoch=0;revisions.reset(sessionId,epoch);translations.reset(sessionId,epoch);proofreader.reset(sessionId,epoch);video=message.video;
  try{
  stream=await navigator.mediaDevices.getUserMedia({audio:{mandatory:{chromeMediaSource:'tab',chromeMediaSourceId:message.streamId}} as MediaTrackConstraints,video:false});
  context=new AudioContext();await context.audioWorklet.addModule(chrome.runtime.getURL('worklet.js'));await context.resume();
@@ -103,7 +108,8 @@ chrome.runtime.onMessage.addListener((message,_sender,reply)=>{
  if(message.target!=='offscreen')return;
  (async()=>{
   if(message.kind==='prepare-translation'){try{await nativeProvider.prepare(message.sourceLanguage,message.targetLanguage);translations.retry();publish({translationStatus:'offscreen-ready',translationContext:'offscreen',translationError:undefined});return{ok:true,context:'offscreen'};}catch(error){return{ok:false,error:String(error)};}}
-  if(message.kind==='translate-history'){if(message.token)token=message.token;const row=message.row;const source=row.sourceLanguage==='auto'?(/[\u3400-\u9fff]/.test(row.sourceText)?'zh':'en'):row.sourceLanguage;const startedAt=Date.now();try{const text=await withDeadline(signal=>translateDraft(row.sourceRaw??row.sourceText,source,row.targetLanguage,signal),8000);return{ok:true,event:{type:'translation',sessionId:row.sessionId,epoch:row.epoch,segmentId:row.segmentId,sourceRevision:row.revision,translationRevision:(row.translationRevision??0)+1,targetLanguage:row.targetLanguage,text,engine:draftEngine,startedAt,completedAt:Date.now()}};}catch(error){return{ok:false,error:String(error)};}}
+  if(message.kind==='translate-history'){if(message.token)token=message.token;const row=message.row;const source=row.sourceLanguage==='auto'?(/[\u3400-\u9fff]/.test(row.sourceText)?'zh':'en'):row.sourceLanguage;const startedAt=Date.now();try{const text=await withDeadline(signal=>translateDraft(row.sourceRaw??row.sourceText,source,row.targetLanguage,signal,{entries:(row.matchedTerms??[]).map((match:any)=>match.entry),url:row.url}),8000);return{ok:true,event:{type:'translation',sessionId:row.sessionId,epoch:row.epoch,segmentId:row.segmentId,sourceRevision:row.revision,translationRevision:(row.translationRevision??0)+1,targetLanguage:row.targetLanguage,glossaryVersion:row.glossaryVersion,matchedTerms:row.matchedTerms,text,engine:draftEngine,startedAt,completedAt:Date.now()}};}catch(error){return{ok:false,error:String(error)};}}
+  if(message.kind==='glossary'){const next={version:message.glossary?.version??0,entries:validateGlossary(message.glossary?.entries??[])};const changed=next.version!==glossary.version;glossary=next;if(changed&&active)reset('术语表版本已更新，开始新识别段');}
   if(message.kind==='retry-translation'){translations.retry();}
   if(message.kind==='config'){const changed=config.sourceLanguage!==message.config.sourceLanguage||config.targetLanguage!==message.config.targetLanguage||config.translationEngine!==message.config.translationEngine||config.proofreading!==message.config.proofreading;config={...defaults,...message.config};if(changed&&active)reset('语言或翻译引擎设置已更新');}
   if(message.kind==='start')await start(message);

@@ -1,3 +1,4 @@
+import{emptyGlossary}from'./glossary';
 import{canSeekMedia}from'./media';
 import {VideoRegistry} from './registry';
 import {saveFinal,saveTranslation,failTranslation,cancelPending,persistReceivedFinal,markProofreading}from'./history';
@@ -45,7 +46,7 @@ async function start(expectedTabId?:number){
  state={...initialState,tabId:tab.id,phase:'connecting',sessionId:crypto.randomUUID(),captureUrl:tab.url,captureTitle:tab.title};
  const streamId=await chrome.tabCapture.getMediaStreamId({targetTabId:tab.id});await offscreen();
  await chrome.scripting.executeScript({target:{tabId:tab.id,allFrames:true},files:['content.js']}).catch(async()=>{await chrome.scripting.executeScript({target:{tabId:tab.id!},files:['content.js']});});
- await broadcast('inspect');const response=await send('offscreen','start',{streamId,sessionId:state.sessionId,token,config:await chrome.storage.sync.get(defaults),video:state.video});
+ await broadcast('inspect');const response=await send('offscreen','start',{streamId,sessionId:state.sessionId,token,config:await chrome.storage.sync.get(defaults),glossary:(await chrome.storage.local.get({glossary:emptyGlossary})).glossary,scopeUrl:tab.url,video:state.video});
  if(!response?.ok)throw new Error(response?.error||'无法启动音频采集');await broadcast('epoch',{sessionId:state.sessionId,epoch:0});
 }
 chrome.action.onClicked.addListener(tab=>{if(tab.id)void chrome.sidePanel.open({tabId:tab.id});});
@@ -83,6 +84,6 @@ chrome.runtime.onMessage.addListener((message,sender,reply)=>{
   return state;
  })().then(reply,error=>{if(message.kind==='start')state={...state,phase:'error',message:String(error)};reply({...state,error:String(error)});});return true;
 });
-chrome.storage.onChanged.addListener((_changes,area)=>{if(area==='sync')void chrome.storage.sync.get(defaults).then(async config=>{await broadcast('config',{config});await send('offscreen','config',{config}).catch(()=>{});});});
+chrome.storage.onChanged.addListener((changes,area)=>{if(area==='local'&&changes.glossary)void send('offscreen','glossary',{glossary:changes.glossary.newValue??emptyGlossary}).catch(()=>{});if(area==='sync')void chrome.storage.sync.get(defaults).then(async config=>{await broadcast('config',{config});await send('offscreen','config',{config}).catch(()=>{});});});
 chrome.tabs.onRemoved.addListener(tabId=>{if(tabId===state.tabId){retire(state.sessionId,state.epoch);cancelPanelTranslations('目标标签页已关闭');if(state.sessionId)void cancelPending(state.sessionId,state.epoch,'目标标签页已关闭');void send('offscreen','stop');state={...initialState};}});
 chrome.tabs.onUpdated.addListener((tabId,change)=>{if(tabId===state.tabId&&change.status==='loading'){videos.clear();manual=false;void choose();}if(tabId===state.tabId&&change.status==='complete'&&state.phase!=='idle')void chrome.scripting.executeScript({target:{tabId,allFrames:true},files:['content.js']}).catch(()=>{});});

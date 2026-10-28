@@ -1,5 +1,6 @@
-export interface CaptionRow{sessionId:string;epoch:number;segmentId:string;revision:number;sourceText:string;sourceRaw?:string;videoId?:string;mediaUrl?:string;documentId?:string;live?:boolean;proofreadingState?:string;proofreadingError?:string;translatedText?:string;translationRevision?:number;displaySourceText?:string;sourceLanguage:string;targetLanguage:string;mediaTime:number|null;start:number;end:number;url:string;title:string;createdAt:number;engine:string;translationEngine?:string;translationState?:string;translationError?:string;translationStartedAt?:number;translationCompletedAt?:number}
-export interface TranslationEvent{type?:string;sessionId:string;epoch:number;segmentId:string;sourceRevision:number;translationRevision?:number;targetLanguage:string;text:string;engine?:string;phase?:string;startedAt?:number;completedAt?:number}
+import type{TermMatch}from'./glossary';
+export interface CaptionRow{glossaryVersion?:number;matchedTerms?:TermMatch[];sessionId:string;epoch:number;segmentId:string;revision:number;sourceText:string;sourceRaw?:string;videoId?:string;mediaUrl?:string;documentId?:string;live?:boolean;proofreadingState?:string;proofreadingError?:string;translatedText?:string;translationRevision?:number;displaySourceText?:string;sourceLanguage:string;targetLanguage:string;mediaTime:number|null;start:number;end:number;url:string;title:string;createdAt:number;engine:string;translationEngine?:string;translationState?:string;translationError?:string;translationStartedAt?:number;translationCompletedAt?:number}
+export interface TranslationEvent{glossaryVersion?:number;matchedTerms?:TermMatch[];type?:string;sessionId:string;epoch:number;segmentId:string;sourceRevision:number;translationRevision?:number;targetLanguage:string;text:string;engine?:string;phase?:string;startedAt?:number;completedAt?:number}
 export const rowKey=(row:Pick<CaptionRow,'sessionId'|'epoch'|'segmentId'>)=>[row.sessionId,row.epoch,row.segmentId];
 export function mergeFinal(existing:CaptionRow|undefined,event:any):CaptionRow|undefined{
  if(event.phase!=='final')return existing;
@@ -8,7 +9,7 @@ export function mergeFinal(existing:CaptionRow|undefined,event:any):CaptionRow|u
  return{...source,translationError:event.translationState==='cancelled'?event.translationError:undefined,translationState:event.translationState??(event.targetLanguage===event.sourceLanguage?'same-language':'pending')};
 }
 export function mergeTranslation(row:CaptionRow|undefined,event:TranslationEvent):CaptionRow|undefined{
- if(!row||JSON.stringify(rowKey(row))!==JSON.stringify([event.sessionId,event.epoch,event.segmentId])||row.revision!==event.sourceRevision||row.targetLanguage!==event.targetLanguage)return row;
+ if(!row||JSON.stringify(rowKey(row))!==JSON.stringify([event.sessionId,event.epoch,event.segmentId])||row.revision!==event.sourceRevision||row.targetLanguage!==event.targetLanguage||(row.glossaryVersion??0)!==(event.glossaryVersion??0))return row;
  const translationRevision=event.translationRevision??1;if((row.translationRevision??0)>=translationRevision)return row;
  return{...row,translationRevision,proofreadingState:translationRevision>1?'revised':undefined,proofreadingError:undefined,translatedText:event.text,translationEngine:event.engine,translationState:'complete',translationError:undefined,translationStartedAt:event.startedAt,translationCompletedAt:event.completedAt};
 }

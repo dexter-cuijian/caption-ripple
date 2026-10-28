@@ -11,10 +11,10 @@ class FakeSocket {
 class FakeNode {port={onmessage:null as any};disconnect=vi.fn();connect=vi.fn();constructor(){nodes.push(this);}}
 class FakeContext {currentTime=0;state='running';destination={};audioWorklet={addModule:async()=>{if(failModule)throw new Error('worklet failed');}};close=vi.fn(async()=>{this.state='closed';});resume=vi.fn(async()=>{});onstatechange:any;constructor(){contexts.push(this);}createMediaStreamSource(){return new FakeNode();}createGain(){return Object.assign(new FakeNode(),{gain:{value:1}});}}
 async function command(kind:string,extra:any={}){return new Promise<any>(resolve=>listener({target:'offscreen',kind,...extra},{},resolve));}
-async function start(video?:any){return command('start',{streamId:'capture',sessionId:'session',token:'secret',config:{},video});}
+async function start(video?:any,extra:any={}){return command('start',{streamId:'capture',sessionId:'session',token:'secret',config:{},video,...extra});}
 function packet(){[...nodes].reverse().find(n=>n.port.onmessage)?.port.onmessage({data:{pcm:new Int16Array(1600).buffer,rms:.1,contextTime:1}});}
 beforeEach(async()=>{
- vi.resetModules();runtimeMessages=[];translateFinish=undefined;failModule=false;contexts=[];tracks=[];sockets=[];nodes=[];
+ vi.resetModules();vi.stubGlobal('Translator',undefined);vi.stubGlobal('fetch',async()=>{throw new Error('local offline');});runtimeMessages=[];translateFinish=undefined;failModule=false;contexts=[];tracks=[];sockets=[];nodes=[];
  vi.stubGlobal('chrome',{runtime:{onMessage:{addListener:(fn:any)=>listener=fn},sendMessage:async(message:any)=>{runtimeMessages.push(message);if(message.kind==='panel-translate')return new Promise(resolve=>{translateFinish=resolve;});return{};},getURL:(s:string)=>s}});
  vi.stubGlobal('navigator',{mediaDevices:{getUserMedia:async()=>{const track={stop:vi.fn(),onended:null};tracks.push(track);return{getTracks:()=>[track],getAudioTracks:()=>[track]};}}});
  vi.stubGlobal('AudioContext',FakeContext);vi.stubGlobal('AudioWorkletNode',FakeNode);vi.stubGlobal('WebSocket',FakeSocket);
@@ -59,4 +59,14 @@ test('late final translation persists but never pairs with a newer interim in li
  translateFinish!({ok:true,text:'Old translation'});await new Promise(resolve=>setTimeout(resolve,0));
  expect(runtimeMessages.some(message=>message.kind==='translation'&&message.event.text==='Old translation')).toBe(true);
  expect(runtimeMessages.filter(message=>message.kind==='state').at(-1).state.latestTranslation).toBe('');await command('stop');
+});
+
+test('hello hotwords and real offscreen draft path use scoped versioned names while preserving original source',async()=>{
+ vi.stubGlobal('Translator',{availability:async()=>'available',create:async()=>({translate:async(text:string)=>text,destroy:()=>{}})});
+ const entries=[{id:'name',source:'蒋万安',target:'Chiang Wan-an',sourceLang:'zh',targetLang:'en',scope:'video',videoUrl:'https://n.test/a'},{id:'camp',source:'蓝营',target:'pan-blue camp',sourceLang:'zh',targetLang:'en',scope:'global'}];
+ await start(undefined,{scopeUrl:'https://n.test/a',glossary:{version:5,entries}});sockets[0].open();expect(JSON.parse(sockets[0].sent[0]).hotwords).toEqual(['蒋万安','蓝营']);
+ sockets[0].onmessage({data:JSON.stringify({type:'subtitle',phase:'final',sessionId:'session',epoch:0,segmentId:'a',revision:1,sourceText:'蒋万安谈蓝营',sourceLanguage:'zh'})});await new Promise(resolve=>setTimeout(resolve,0));
+ const source=runtimeMessages.find(message=>message.kind==='subtitle').event,translated=runtimeMessages.find(message=>message.kind==='translation').event;
+ expect(source.sourceText).toBe('蒋万安谈蓝营');expect(source.sourceRaw).toBe('蒋万安谈蓝营');expect(source.glossaryVersion).toBe(5);expect(translated.text).toContain('Chiang Wan-an');expect(translated.text).toContain('pan-blue camp');expect(translated.text).not.toMatch(/ZXQ/i);expect(translated.glossaryVersion).toBe(5);
+ await command('glossary',{glossary:{version:6,entries:[]}});expect(runtimeMessages.some(message=>message.kind==='epoch'&&message.epoch===1)).toBe(true);await command('stop');
 });

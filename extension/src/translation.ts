@@ -24,7 +24,7 @@ export class FinalTranslator{
  try{while(this.queue.length&&generation===this.generation){const task=this.queue.shift();if(this.latest.get(task.segmentId)!==task.revision)continue;const startedAt=Date.now();
  try{const text=task.sourceLanguage===task.targetLanguage?task.sourceText:await withDeadline(active=>this.provider.translate(task.sourceText,task.sourceLanguage,task.targetLanguage,active),this.options.deadlineMs??8000,signal);
  if(typeof text!=='string'||!text.trim())throw new Error('翻译引擎返回空文本');
- if(generation===this.generation&&this.latest.get(task.segmentId)===task.revision)this.emit({type:'translation',sessionId:task.sessionId,epoch:task.epoch,segmentId:task.segmentId,sourceRevision:task.revision,translationRevision:1,targetLanguage:task.targetLanguage,text,engine:task.sourceLanguage===task.targetLanguage?'same-language':undefined,phase:'final',startedAt,completedAt:Date.now()});
+ if(generation===this.generation&&this.latest.get(task.segmentId)===task.revision)this.emit({type:'translation',sessionId:task.sessionId,epoch:task.epoch,segmentId:task.segmentId,sourceRevision:task.revision,translationRevision:1,glossaryVersion:task.glossaryVersion,matchedTerms:task.matchedTerms,targetLanguage:task.targetLanguage,text,engine:task.sourceLanguage===task.targetLanguage?'same-language':undefined,phase:'final',startedAt,completedAt:Date.now()});
  }catch(error){if(generation===this.generation&&!signal.aborted){this.failure({...task,sourceRevision:task.revision,error:String(error)});if(this.failed.length<20)this.failed.push(task);}}
  }}finally{if(generation===this.generation){this.busy=false;this.options.onWork?.(false);}}
  }
