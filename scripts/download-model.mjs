@@ -5,15 +5,18 @@ import path from 'node:path';
 import {verifyArtifact} from './artifact.mjs';
 
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const {paraformer}=JSON.parse(await readFile(path.join(root,'models.lock.json'),'utf8'));
-const destination=path.join(root,'.models','paraformer');
+const modelName=process.argv[2]??'paraformer';
+const models=JSON.parse(await readFile(path.join(root,'models.lock.json'),'utf8'));
+const model=models[modelName];
+if(!model)throw new Error(`未知模型 ${modelName}，可选：${Object.keys(models).join(', ')}`);
+const destination=path.join(root,'.models',modelName);
 await mkdir(destination,{recursive:true});
-for (const file of paraformer.files) {
+for (const file of model.files) {
   const target=path.join(destination,file.name);
   let valid=false;
   try {valid=verifyArtifact(await readFile(target),file);} catch {}
   if(valid) {console.log(`${file.name}: 校验通过，复用`); continue;}
-  const url=`https://huggingface.co/${paraformer.repository}/resolve/${paraformer.revision}/${file.name}`;
+  const url=`https://huggingface.co/${model.repository}/resolve/${model.revision}/${file.name}`;
   const partial=`${target}.partial`;
   console.log(`下载 ${file.name} (${(file.size/1048576).toFixed(1)} MiB)`);
   await new Promise((resolve,reject)=> {
@@ -24,4 +27,4 @@ for (const file of paraformer.files) {
   await rename(partial,target);
   console.log(`${file.name}: 下载及完整性校验完成`);
 }
-console.log('Paraformer 模型准备完成。npm start 启动本地伴侣程序。');
+console.log(`${modelName} 模型准备完成。`);
