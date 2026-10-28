@@ -99,7 +99,7 @@ export class Session {
     }
     if(result.final){this.segment++;this.revision=0;this.lastText='';this.segmentStart=null;this.speechStartAt=null;}
     if(result.maintenance)this.emit({type:'status',level:'info',code:'decoder_maintenance',message:'Decoder reset at a silence boundary',sessionId:this.id,epoch:this.epoch});
-    this.log({type:'decode',sessionId:this.id,epoch:this.epoch,seq:meta.seq,capturedAt:meta.capturedAt,receivedAt:packet.receivedAt,decodeMs:result.decodeMs,queueMs:packet.queueMs,rms:result.rms,voiced:result.voiced});
+    this.log({type:'decode',sessionId:this.id,epoch:this.epoch,seq:meta.seq,capturedAt:meta.capturedAt,receivedAt:packet.receivedAt,decodeMs:result.decodeMs,queueMs:packet.queueMs,rms:result.rms,normalizedRms:result.normalizedRms,agcGain:result.agcGain,voiced:result.voiced});
     this.pump();
   }
   rendered(message){

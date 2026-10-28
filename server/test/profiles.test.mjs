@@ -14,3 +14,9 @@ test('natural acoustic stream has no duration or text reset; RMS override explic
  assert.equal(decoderOptions('paraformer',{CAPTION_ASR_RMS_THRESHOLD:'.001'}).threshold,.001);
  assert.throws(()=>decoderOptions('paraformer',{CAPTION_ASR_RMS_THRESHOLD:'broken'}),/threshold/);
 });
+
+test('English Zipformer profile explicit and causal AGC remains off unless requested',()=>{
+ const en=profileConfig('zipformer-en','/models/en');assert.equal(en.engine,'sherpa-onnx/zipformer-en');assert.deepEqual(en.languages,['auto','en']);
+ assert.equal(en.recognizer.modelConfig.transducer.encoder,'/models/en/encoder-epoch-99-avg-1-chunk-16-left-128.int8.onnx');
+ assert.equal(decoderOptions('zipformer-en',{}).agc,false);assert.equal(decoderOptions('zipformer-en',{CAPTION_ASR_AGC:'1'}).agc,true);
+});

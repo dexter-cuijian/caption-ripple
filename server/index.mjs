@@ -15,7 +15,7 @@ const sameToken=(provided,expected)=>{if(typeof provided!=='string')return false
 const json=(response,status,payload)=>{response.writeHead(status,{'content-type':'application/json; charset=utf-8','cache-control':'no-store'});response.end(JSON.stringify(payload));};
 
 export function createServer({modelDir,runtimeDir=join(projectRoot,'.runtime'),workerFactory=defaultWorkerFactory,helloTimeoutMs=5000,evaluationRecordDir=process.env.CAPTION_EVAL_RECORD_DIR,profile=process.env.CAPTION_ASR_PROFILE??'paraformer'}={}){
-  runtimeDir=resolve(runtimeDir);modelDir=resolve(modelDir??join(projectRoot,'.models',profile==='zipformer-zh'?'zipformer-zh':'paraformer'));
+  runtimeDir=resolve(runtimeDir);modelDir=resolve(modelDir??join(projectRoot,'.models',profile.startsWith('zipformer-')?profile:'paraformer'));
   const selectedProfile=profileConfig(profile,modelDir);decoderOptions(profile);
   mkdirSync(runtimeDir,{recursive:true,mode:0o700});
   const tokenPath=join(runtimeDir,'token');
