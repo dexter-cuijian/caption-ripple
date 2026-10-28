@@ -91,5 +91,24 @@
         "sha256": "6193c7ea1c96d0d9a1e9652789b40d13a8a913b434a5451e93158f5a09fd6652"
       }
     ]
+  },
+  "punctuation": {
+    "source": "https://k2-fsa.github.io/sherpa/onnx/punctuation/pretrained_models.html",
+    "archive": {
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/punctuation-models/sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12-int8.tar.bz2",
+      "size": 64717756,
+      "sha256": "c0d5aa5f8eeb686032345e180bedf39319dc2e0556781c6264bcadba8328a6e1",
+      "prefix": "sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12-int8",
+      "notices": [
+        "README.md"
+      ]
+    },
+    "files": [
+      {
+        "name": "model.int8.onnx",
+        "size": 75519198,
+        "sha256": "65a3fb9f5ad7bfb96bf69e0dc4481df97f6ee60513c1d94ce981ba6effd524b1"
+      }
+    ]
   }
 }
