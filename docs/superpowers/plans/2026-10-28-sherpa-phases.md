@@ -13,3 +13,10 @@ Task4: Streaming translation option; subtitle offset; local Hy-MT2 offline trans
 Latest latency contract: ideal source first character <1s; phase1 Chinese source onset to render <=2s; overall bilingual 2–5s acceptable. Logs distinguish audio onset/capture/server/decode/render, cold/warm, observed figures and unavailable token timestamps.
 
 Commit emojis + Conventional Commit. Branch feature/realtime-captions. Real installed Chrome acceptance required, no synthetic/mocked claims. Completion email to authorized user with fresh Codex quota only once work completes or truthful limitation summary if blocked.
+
+## Later user refinements (2026-10-28)
+
+- Final installation goal: users install only the Chrome extension and do not start a separate local service. The current Node/sherpa companion remains a measured development baseline. Validate an in-browser ASR provider against the same speech and real Chrome latency/quality gates before replacing that baseline; do not call a companion auto-launcher an extension-only install. Surface any measured quality, speed, privacy, or download tradeoff before changing the previously chosen primary architecture.
+- Add interface internationalization, including translated controls, status/errors, history and export labels. Keep spoken source and target language settings independent from interface language. Verify at least Simplified Chinese and English, including long text and small side panel widths.
+- Add selectable themes for the sidebar and video subtitles, with light/dark and high-contrast options. Preserve readability over bright and dark video, fullscreen, and narrow side panels; store user preference and verify it persists after browser restart.
+- Redesign extension branding around instant translation. User selected the top-right concept: audio waveform flowing to two bilingual subtitle lines. The chosen mark is installed in the Chrome toolbar, extension card and sidebar at 16/32/48/128 px; retain editable SVG and reproducible PNG generator.
