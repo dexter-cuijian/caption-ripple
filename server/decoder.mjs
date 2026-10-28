@@ -1,10 +1,10 @@
 /** Native recognition state lives exclusively in the native subprocess. */
 export class CaptionDecoder {
-  constructor(recognizer, {silenceSamples=8000, threshold=.008, maintenanceSamples=16000*7200,maxSegmentSeconds=4,maxTextLength=40,maxLatinTextLength=160}={}) {
+  constructor(recognizer, {silenceSamples=8000, threshold=.008, maintenanceSamples=16000*7200,maxSegmentSeconds=Infinity,maxTextLength=Infinity,maxLatinTextLength=Infinity,tailPaddingSamples=6400}={}) {
     this.recognizer=recognizer;this.stream=recognizer.createStream();
     this.silenceSamples=silenceSamples;this.threshold=threshold;this.maintenanceSamples=maintenanceSamples;
     this.active=false;this.silentSamples=0;this.totalSamples=0;this.segmentSamples=0;
-    this.maxSegmentSamples=maxSegmentSeconds*16000;this.maxTextLength=maxTextLength;this.maxLatinTextLength=maxLatinTextLength;
+    this.maxSegmentSamples=maxSegmentSeconds*16000;this.maxTextLength=maxTextLength;this.maxLatinTextLength=maxLatinTextLength;this.tailPaddingSamples=tailPaddingSamples;
   }
   decode(samples) {
     this.stream.acceptWaveform({sampleRate:16000,samples});
@@ -27,7 +27,7 @@ export class CaptionDecoder {
     const final=splitReason!==null;
     if(final){
       // Streaming paraformer has decoder lookahead; padding flushes that tail.
-      text=this.decode(new Float32Array(6400))||text;
+      text=this.decode(new Float32Array(this.tailPaddingSamples))||text;
       this.resetStream();
     }
     const maintenance=this.totalSamples>=this.maintenanceSamples&&!this.active;

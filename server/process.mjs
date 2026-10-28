@@ -3,11 +3,11 @@ import {EventEmitter} from 'node:events';
 
 /** N-API decoder failures must terminate only the native subprocess, never HTTP/WS. */
 export class DecoderProcess extends EventEmitter {
-  constructor({modelDir,entry=new URL('./worker.mjs',import.meta.url)}={}){
+  constructor({modelDir,profile='paraformer',entry=new URL('./worker.mjs',import.meta.url)}={}){
     super();this.supportsReset=true;this.stopping=false;this.exited=false;this.stderr='';
     this.child=fork(entry,[],{
       stdio:['ignore','ignore','pipe','ipc'],serialization:'advanced',
-      execArgv:[],env:{...process.env,CAPTION_NATIVE_MODEL_DIR:modelDir??''},
+      execArgv:[],env:{...process.env,CAPTION_NATIVE_MODEL_DIR:modelDir??'',CAPTION_NATIVE_PROFILE:profile},
     });
     this.pid=this.child.pid;
     this.child.stderr.on('data',data=>{this.stderr=(this.stderr+data.toString()).slice(-4000);});

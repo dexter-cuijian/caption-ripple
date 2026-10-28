@@ -129,3 +129,11 @@ test('abrupt native subprocess death preserves HTTP and permits a fresh decoder 
  event=first(ws);ws.send(JSON.stringify({type:'reset',sessionId:'s',epoch:1,mediaTime:0}));assert.equal((await event).type,'reset');
  assert.equal((await(await fetch(f.url+'/health')).json()).ready,true);ws.close();await once(ws,'close');
 });
+
+test('explicit Chinese profile reports actual engine and rejects unsupported language on reset',async t=>{
+ const f=await fixture(t,{profile:'zipformer-zh'}),auth={Authorization:`Bearer ${f.token}`};
+ const capabilities=await(await fetch(f.url+'/capabilities',{headers:auth})).json();assert.equal(capabilities.languages.includes('en'),false);assert.equal(capabilities.models[0].engine,'sherpa-onnx/zipformer-zh');
+ const ws=new WebSocket(f.ws);await once(ws,'open');let event=first(ws);ws.send(JSON.stringify(hello(f.token)));assert.equal((await event).engine,'sherpa-onnx/zipformer-zh');
+ event=first(ws);ws.send(JSON.stringify({type:'reset',sessionId:'s',epoch:1,mediaTime:0,sourceLanguage:'en'}));assert.equal((await event).code,'invalid_message');
+ event=first(ws);ws.send(JSON.stringify({type:'reset',sessionId:'s',epoch:1,mediaTime:0,sourceLanguage:'zh'}));assert.equal((await event).type,'reset');ws.close();await once(ws,'close');
+});

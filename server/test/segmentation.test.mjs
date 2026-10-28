@@ -49,3 +49,17 @@ test('Chinese 40-character limit does not prematurely cut English at 40 ASCII le
  const d=new CaptionDecoder(r);
  assert.equal(d.accept(new Float32Array(1600).fill(.1)).final,false);
 });
+
+test('model-specific lookahead tail padding is honored during natural finalization',()=>{
+ const r=recognizer(),d=new CaptionDecoder(r,{tailPaddingSamples:16000,maxSegmentSeconds:100,maxTextLength:1000});
+ d.accept(new Float32Array(1600).fill(.1));for(let i=0;i<5;i++)d.accept(new Float32Array(1600));
+ assert.equal(r.streams[0].audio.at(-1).length,16000);
+});
+
+test('quality default retains acoustic stream through continuous long text until natural silence',()=>{
+ const r=recognizer(),d=new CaptionDecoder(r);
+ for(let i=0;i<60;i++)assert.equal(d.accept(new Float32Array(1600).fill(.1)).final,false);
+ assert.equal(r.streams.length,1);
+ let result;for(let i=0;i<5;i++)result=d.accept(new Float32Array(1600));
+ assert.equal(result.final,true);assert.equal(result.splitReason,'silence');assert.equal(r.streams.length,2);
+});

@@ -8,7 +8,7 @@ const finite=value=>typeof value==='number'&&Number.isFinite(value);
 
 export class Session {
   constructor(hello,send,workerFactory,log=()=>{},options={}){
-    this.id=hello.sessionId;this.epoch=hello.epoch;this.language=hello.sourceLanguage??'auto';
+    this.engine=options.engine??ENGINE;this.id=hello.sessionId;this.epoch=hello.epoch;this.language=hello.sourceLanguage??'auto';
     this.hello=hello;this.send=send;this.workerFactory=workerFactory;this.log=log;this.options=options;
     this.queue=[];this.pending=null;this.clockPacket=null;this.nextSeq=0;this.nextSample=0;
     this.segment=0;this.revision=0;this.lastText='';this.speechStartAt=null;this.segmentStart=null;this.segmentMediaTime=null;
@@ -19,7 +19,7 @@ export class Session {
   startWorker(reset,reuse=null){
     this.options.acquireDecoder?.(this);
     let worker;
-    try{worker=reuse??this.workerFactory({modelDir:this.options.modelDir});}
+    try{worker=reuse??this.workerFactory({modelDir:this.options.modelDir,profile:this.options.profile});}
     catch(error){this.options.releaseDecoder?.(this);throw error;}
     if(this.workerHandlers){
       const {worker:previous,message,error,exit}=this.workerHandlers;
@@ -32,7 +32,7 @@ export class Session {
       if(!current())return;
       if(message.type==='ready'){
         this.ready=true;
-        this.emit(reset?{type:'reset',sessionId:this.id,epoch}:{type:'ready',sessionId:this.id,epoch,engine:ENGINE,sampleRate:16000});
+        this.emit(reset?{type:'reset',sessionId:this.id,epoch}:{type:'ready',sessionId:this.id,epoch,engine:this.engine,sampleRate:16000});
         this.pump();
       }else if(message.type==='error')this.fail('asr_unavailable',message.message);
       else if(message.type==='decoded')this.decoded(message);
@@ -89,7 +89,7 @@ export class Session {
       const end=(meta.sampleStart+samples.length)/16000;
       // clock.mediaTime corresponds to packet END (same instant as capturedAt).
       const mediaTime=this.segmentStart===null?(meta.mediaTime===null?null:meta.mediaTime-samples.length/16000*meta.playbackRate):this.segmentMediaTime;
-      const event={type:'subtitle',sessionId:this.id,epoch:this.epoch,segmentId:String(this.segment),revision:this.revision,phase:result.final?'final':'interim',sourceText:text,sourceLanguage:this.language,start,end,mediaTime,createdAt:Date.now(),engine:ENGINE,speechStartAt:this.speechStartAt,audioEndAt:meta.capturedAt,timestampKind:'capture-estimate',metrics:{decodeMs:result.decodeMs??0,queueMs:packet.queueMs,serverReceivedAt:packet.receivedAt}};
+      const event={type:'subtitle',sessionId:this.id,epoch:this.epoch,segmentId:String(this.segment),revision:this.revision,phase:result.final?'final':'interim',sourceText:text,sourceLanguage:this.language,start,end,mediaTime,createdAt:Date.now(),engine:this.engine,speechStartAt:this.speechStartAt,audioEndAt:meta.capturedAt,timestampKind:'capture-estimate',metrics:{decodeMs:result.decodeMs??0,queueMs:packet.queueMs,serverReceivedAt:packet.receivedAt}};
       if(result.splitReason)event.splitReason=result.splitReason;
       this.emit(event);this.lastText=text;
       const key=`${this.epoch}:${this.segment}:${this.revision}`;

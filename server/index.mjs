@@ -6,6 +6,7 @@ import {randomBytes,timingSafeEqual} from 'node:crypto';
 import {WebSocketServer,WebSocket} from 'ws';
 import {Session,validOrigin,defaultWorkerFactory,ENGINE} from './session.mjs';
 import {Diagnostics} from './diagnostics.mjs';
+import {profileConfig,decoderOptions} from './profiles.mjs';
 
 const projectRoot=resolve(dirname(fileURLToPath(import.meta.url)),'..');
 const loopback=address=>['127.0.0.1','::1','::ffff:127.0.0.1'].includes(address);
@@ -13,8 +14,9 @@ const validHost=host=>/^(127\.0\.0\.1|localhost|\[::1\])(:\d{1,5})?$/.test(host?
 const sameToken=(provided,expected)=>{if(typeof provided!=='string')return false;const actual=Buffer.from(provided),wanted=Buffer.from(expected);return actual.length===wanted.length&&timingSafeEqual(actual,wanted);};
 const json=(response,status,payload)=>{response.writeHead(status,{'content-type':'application/json; charset=utf-8','cache-control':'no-store'});response.end(JSON.stringify(payload));};
 
-export function createServer({modelDir=join(projectRoot,'.models','paraformer'),runtimeDir=join(projectRoot,'.runtime'),workerFactory=defaultWorkerFactory,helloTimeoutMs=5000,evaluationRecordDir=process.env.CAPTION_EVAL_RECORD_DIR}={}){
-  runtimeDir=resolve(runtimeDir);modelDir=resolve(modelDir);
+export function createServer({modelDir,runtimeDir=join(projectRoot,'.runtime'),workerFactory=defaultWorkerFactory,helloTimeoutMs=5000,evaluationRecordDir=process.env.CAPTION_EVAL_RECORD_DIR,profile=process.env.CAPTION_ASR_PROFILE??'paraformer'}={}){
+  runtimeDir=resolve(runtimeDir);modelDir=resolve(modelDir??join(projectRoot,'.models',profile==='zipformer-zh'?'zipformer-zh':'paraformer'));
+  const selectedProfile=profileConfig(profile,modelDir);decoderOptions(profile);
   mkdirSync(runtimeDir,{recursive:true,mode:0o700});
   const tokenPath=join(runtimeDir,'token');
   if(!existsSync(tokenPath))writeFileSync(tokenPath,randomBytes(32).toString('base64url'),{flag:'wx',mode:0o600});
@@ -28,7 +30,7 @@ export function createServer({modelDir=join(projectRoot,'.models','paraformer'),
     decoderOwner=session;lastError=null;
   };
   const releaseDecoder=session=>{if(decoderOwner===session)decoderOwner=null;};
-  const modelsPresent=()=>['encoder.int8.onnx','decoder.int8.onnx','tokens.txt'].every(name=>existsSync(join(modelDir,name)));
+  const modelsPresent=()=>selectedProfile.files.every(name=>existsSync(join(modelDir,name)));
   const server=http.createServer((request,response)=>{
     if(!loopback(request.socket.remoteAddress)||!validHost(request.headers.host)||!validOrigin(request.headers.origin))return json(response,403,{error:'Forbidden host or origin'});
     const origin=request.headers.origin;
@@ -37,9 +39,9 @@ export function createServer({modelDir=join(projectRoot,'.models','paraformer'),
     if(request.method!=='GET')return json(response,405,{error:'Method not allowed'});
     const path=new URL(request.url,'http://localhost').pathname;
     const modelState=decoderOwner?(decoderOwner.ready?'ready':'loading'):(lastError?'error':'cold');
-    if(path==='/health')return json(response,200,{status:modelState==='error'?'error':modelState==='loading'?'loading':'ok',ready:modelState==='ready',asr:ENGINE,translation:'disabled',protocolVersion:1,modelState,modelsPresent:modelsPresent(),error:lastError});
+    if(path==='/health')return json(response,200,{status:modelState==='error'?'error':modelState==='loading'?'loading':'ok',ready:modelState==='ready',asr:selectedProfile.engine,translation:'disabled',protocolVersion:1,modelState,modelsPresent:modelsPresent(),error:lastError});
     if(!sameToken(request.headers.authorization?.startsWith('Bearer ')?request.headers.authorization.slice(7):undefined,token))return json(response,401,{error:'Bearer pairing token required'});
-    if(path==='/capabilities')return json(response,200,{protocolVersion:1,languages:['auto','zh','en'],models:[{id:'paraformer',engine:ENGINE,streaming:true,wordTimestamps:false,hotwords:false,installed:modelsPresent()}],sampleRate:16000,maxChunkSamples:1600,translation:false,visual:false,timestampKind:'capture-estimate'});
+    if(path==='/capabilities')return json(response,200,{protocolVersion:1,languages:selectedProfile.languages,models:[{id:profile,engine:selectedProfile.engine,streaming:true,wordTimestamps:false,nativeTokenTimestamps:selectedProfile.nativeTokenTimestamps,hotwords:false,installed:modelsPresent()}],sampleRate:16000,maxChunkSamples:1600,translation:false,visual:false,timestampKind:'capture-estimate'});
     if(path==='/v1/diagnostics')return json(response,200,{events:diagnostics.events,logDropped:diagnostics.dropped,logError:diagnostics.error,sessions:[...sessions].map(session=>({sessionId:session.id,epoch:session.epoch,paused:session.paused,history:session.history}))});
     return json(response,404,{error:'Not found'});
   });
@@ -69,15 +71,16 @@ export function createServer({modelDir=join(projectRoot,'.models','paraformer'),
           if(message.type!=='hello'||message.protocolVersion!==1)return ws.close(4400,'Unsupported hello protocol');
           if(!sameToken(message.token,token))return ws.close(4401,'Invalid pairing token');
           if(typeof message.sessionId!=='string'||!message.sessionId||message.sessionId.length>128||!Number.isSafeInteger(message.epoch)||message.epoch<0||!['auto','zh','en'].includes(message.sourceLanguage??'auto'))return ws.close(4400,'Invalid hello fields');
+          if(!selectedProfile.languages.includes(message.sourceLanguage??'auto'))return ws.close(4400,'Language unsupported by selected ASR profile');
           clearTimeout(timer);
           if(decoderOwner)return ws.close(4429,'One native decoder session at a time');
-          session=new Session(message,send,workerFactory,event=>diagnostics.log(event),{modelDir,acquireDecoder,releaseDecoder,evaluationRecordDir});sessions.add(session);
+          session=new Session(message,send,workerFactory,event=>diagnostics.log(event),{modelDir,profile,engine:selectedProfile.engine,acquireDecoder,releaseDecoder,evaluationRecordDir});sessions.add(session);
           return;
         }
         if(isBinary){session.audio(data);return;}
         const message=JSON.parse(data.toString());
         if(message.sessionId!==session.id)throw new Error('Session mismatch');
-        if(message.type==='reset'){session.reset(message);return;}
+        if(message.type==='reset'){if(message.sourceLanguage&&!selectedProfile.languages.includes(message.sourceLanguage))throw new Error('Language unsupported by selected ASR profile');session.reset(message);return;}
         if(message.epoch!==session.epoch)throw new Error('Epoch mismatch');
         switch(message.type){
           case 'clock':session.clock(message);break;
