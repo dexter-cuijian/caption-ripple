@@ -7,6 +7,7 @@ import {EventEmitter,once} from 'node:events';
 import WebSocket from 'ws';
 import http from 'node:http';
 import {createServer} from '../index.mjs';
+import {DecoderProcess} from '../process.mjs';
 
 class WorkerStub extends EventEmitter{
   constructor(){super();setTimeout(()=>this.emit('message',{type:'ready'}),5);}
@@ -117,4 +118,14 @@ test('health readiness follows pause, reset, disconnect and overload worker life
  assert.equal((await event).code,'audio_overload');assert.equal((await health()).ready,false);
  event=first(ws);ws.send(JSON.stringify({type:'reset',sessionId:'s',epoch:2,mediaTime:0}));await event;assert.equal((await health()).ready,true);
  ws.close();await once(ws,'close');assert.equal((await health()).ready,false);assert.equal((await health()).modelState,'cold');
+});
+
+test('abrupt native subprocess death preserves HTTP and permits a fresh decoder epoch',async t=>{
+ const f=await fixture(t,{workerFactory:()=>new DecoderProcess({entry:new URL('./process-fixture.mjs',import.meta.url)})});
+ const ws=await connect(f,'s');let event=first(ws);
+ ws.send(JSON.stringify({type:'clock',sessionId:'s',epoch:0,seq:0,sampleStart:0,capturedAt:Date.now(),mediaTime:0,playbackRate:1,paused:false}));ws.send(Buffer.alloc(3200));
+ assert.equal((await event).code,'asr_unavailable');
+ const health=await(await fetch(f.url+'/health')).json();assert.equal(health.ready,false);assert.equal(health.status,'error');
+ event=first(ws);ws.send(JSON.stringify({type:'reset',sessionId:'s',epoch:1,mediaTime:0}));assert.equal((await event).type,'reset');
+ assert.equal((await(await fetch(f.url+'/health')).json()).ready,true);ws.close();await once(ws,'close');
 });

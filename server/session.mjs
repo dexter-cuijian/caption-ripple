@@ -1,8 +1,8 @@
-import {Worker} from 'node:worker_threads';
+import {DecoderProcess} from './process.mjs';
 
 export const ENGINE='sherpa-onnx/paraformer';
 export const validOrigin=origin=>origin===undefined||/^chrome-extension:\/\/[a-p]{32}$/.test(origin);
-export const defaultWorkerFactory=options=>new Worker(new URL('./worker.mjs',import.meta.url),{workerData:options});
+export const defaultWorkerFactory=options=>new DecoderProcess(options);
 const finite=value=>typeof value==='number'&&Number.isFinite(value);
 
 export class Session {
@@ -14,15 +14,19 @@ export class Session {
     this.paused=false;this.closed=false;this.ready=false;this.history=[];this.renderedRows=new Map();this.firstRenders=new Set();
     this.startWorker(false);
   }
-  startWorker(reset){
+  startWorker(reset,reuse=null){
     this.options.acquireDecoder?.(this);
     let worker;
-    try{worker=this.workerFactory({modelDir:this.options.modelDir});}
+    try{worker=reuse??this.workerFactory({modelDir:this.options.modelDir});}
     catch(error){this.options.releaseDecoder?.(this);throw error;}
+    if(this.workerHandlers){
+      const {worker:previous,message,error,exit}=this.workerHandlers;
+      previous.off('message',message);previous.off('error',error);previous.off('exit',exit);
+    }
     this.worker=worker;
     const epoch=this.epoch;
     const current=()=>!this.closed&&!this.paused&&epoch===this.epoch&&this.worker===worker;
-    worker.on('message',message=>{
+    const onMessage=message=>{
       if(!current())return;
       if(message.type==='ready'){
         this.ready=true;
@@ -30,9 +34,11 @@ export class Session {
         this.pump();
       }else if(message.type==='error')this.fail('asr_unavailable',message.message);
       else if(message.type==='decoded')this.decoded(message);
-    });
-    worker.on('error',error=>{if(current())this.fail('asr_unavailable',error.message);});
-    worker.on('exit',code=>{if(current())this.fail('asr_exited',`Decoder exited unexpectedly (${code})`);});
+    };
+    const onError=error=>{if(current())this.fail('asr_unavailable',error.message);};
+    const onExit=code=>{if(current())this.fail('asr_exited',`Decoder exited unexpectedly (${code})`);};
+    worker.on('message',onMessage);worker.on('error',onError);worker.on('exit',onExit);
+    this.workerHandlers={worker,message:onMessage,error:onError,exit:onExit};
   }
   emit(event){this.send(event);this.log(event);}
   status(code,message,level='error'){this.emit({type:'status',sessionId:this.id,epoch:this.epoch,level,code,message});}
@@ -105,10 +111,13 @@ export class Session {
   reset(message){
     if(!Number.isSafeInteger(message.epoch)||message.epoch<=this.epoch)throw new Error('Reset requires a newer epoch');
     this.options.acquireDecoder?.(this);
-    this.worker?.terminate();this.epoch=message.epoch;this.queue=[];this.pending=null;this.clockPacket=null;
+    const reuse=!this.closed&&!this.paused&&this.worker?.supportsReset?this.worker:null;
+    if(!reuse)this.worker?.terminate();
+    this.epoch=message.epoch;this.queue=[];this.pending=null;this.clockPacket=null;
     this.nextSeq=0;this.nextSample=0;this.segment=0;this.revision=0;this.lastText='';this.speechStartAt=null;this.segmentStart=null;this.segmentMediaTime=null;
     this.language=message.sourceLanguage??this.language;
-    this.paused=false;this.ready=false;this.renderedRows.clear();this.firstRenders.clear();this.startWorker(true);
+    this.paused=false;this.ready=false;this.renderedRows.clear();this.firstRenders.clear();this.startWorker(true,reuse);
+    if(reuse)reuse.postMessage({type:'reset'});
   }
   pause(){this.paused=true;this.ready=false;this.queue=[];this.pending=null;this.clockPacket=null;this.worker?.terminate();this.options.releaseDecoder?.(this);this.status('paused','Capture paused; resume with a newer epoch','info');}
   close(){if(this.closed)return;this.closed=true;this.ready=false;this.queue=[];this.pending=null;this.clockPacket=null;this.worker?.terminate();this.options.releaseDecoder?.(this);}

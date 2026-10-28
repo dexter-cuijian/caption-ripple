@@ -134,3 +134,22 @@ test('blank final preserves last recognized interim exactly once in final histor
   session.clock(clock(2));session.audio(Buffer.alloc(3200));workers[0].complete('',true);
   assert.equal(session.history.length,1);session.close();
 });
+
+test('active epoch reset reuses reset-capable native process and discards stale in-flight result',()=>{
+ const workers=[],events=[];
+ const session=new Session(hello,event=>events.push(event),()=>{const w=new ControlledWorker();w.supportsReset=true;workers.push(w);return w;});
+ workers[0].ready();session.clock(clock());session.audio(Buffer.alloc(3200));
+ session.reset({epoch:1,mediaTime:20});
+ assert.equal(workers.length,1);assert.equal(workers[0].terminated,undefined);
+ assert.equal(workers[0].sent.at(-1).type,'reset');
+ workers[0].complete('stale',true);assert.equal(events.some(e=>e.sourceText==='stale'),false);
+ workers[0].ready();assert.equal(events.at(-1).type,'reset');assert.equal(events.at(-1).epoch,1);
+ session.clock({...clock(0,1),mediaTime:20});session.audio(Buffer.alloc(3200));workers[0].complete('new',true);
+ assert.equal(events.at(-1).sourceText,'new');assert.equal(events.at(-1).epoch,1);session.close();
+});
+
+test('epoch decoder reset creates a clean stream while retaining loaded model',()=>{
+ const recognizer=recognizerStub(),decoder=new CaptionDecoder(recognizer);
+ const previous=decoder.stream;decoder.accept(new Float32Array(1600).fill(.2));decoder.reset();
+ assert.notEqual(decoder.stream,previous);assert.equal(decoder.active,false);assert.equal(decoder.totalSamples,0);
+});

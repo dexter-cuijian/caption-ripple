@@ -1,4 +1,4 @@
-/** Native recognition state lives exclusively in the worker thread. */
+/** Native recognition state lives exclusively in the native subprocess. */
 export class CaptionDecoder {
   constructor(recognizer, {silenceSamples=8000, threshold=.008, maintenanceSamples=16000*7200}={}) {
     this.recognizer=recognizer;this.stream=recognizer.createStream();
@@ -29,6 +29,13 @@ export class CaptionDecoder {
     const maintenance=this.totalSamples>=this.maintenanceSamples&&!this.active;
     if(maintenance){this.recognizer.reset(this.stream);this.totalSamples=0;}
     return {text,final,speechStarted,voiced,rms,maintenance,decodeMs:performance.now()-started};
+  }
+  reset(){
+    const previous=this.stream;
+    this.recognizer.reset(previous);
+    this.stream=this.recognizer.createStream();
+    previous.free?.();
+    this.active=false;this.silentSamples=0;this.totalSamples=0;
   }
   close(){this.stream.free?.();this.recognizer.free?.();}
 }
