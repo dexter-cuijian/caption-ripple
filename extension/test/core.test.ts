@@ -34,3 +34,8 @@ test('render confirmation runs after scheduled paint and cancels superseded or h
  frames.shift()!();expect(confirmed).toEqual([2]);
  visible=false;renderAndConfirm(()=>visible,()=>confirmed.push(3),cb=>frames.push(cb));frames.shift()!();expect(confirmed).toEqual([2]);
 });
+import { terminalClose } from '../src/core';
+test('authentication/protocol rejection is terminal, network and decoder-busy can reconnect',()=>{
+ for(const code of [1008,4400,4401])expect(terminalClose(code)).toBe(true);
+ for(const code of [1006,1011,4408,4429])expect(terminalClose(code)).toBe(false);
+});

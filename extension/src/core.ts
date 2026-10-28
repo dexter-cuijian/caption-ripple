@@ -29,3 +29,4 @@ export class RevisionGate {
  }
 }
 export const captureClock=(epochAnchor:number,sampleStart:number)=>epochAnchor+(sampleStart+1600)/16;
+export const terminalClose=(code:number)=>[1008,4400,4401].includes(code);

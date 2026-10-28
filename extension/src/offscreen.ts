@@ -1,4 +1,4 @@
-import {RevisionGate} from './core';
+import {RevisionGate,terminalClose} from './core';
 import {defaults, initialState,send, type Config,type VideoInfo} from './shared';
 let context:AudioContext|undefined,stream:MediaStream|undefined,source:MediaStreamAudioSourceNode|undefined,worklet:AudioWorkletNode|undefined,silent:GainNode|undefined;
 let socket:WebSocket|undefined,retry:ReturnType<typeof setTimeout>|undefined,active=false,accepted=false,attempt=0;
@@ -25,13 +25,13 @@ function connect(){
    if(data.epoch!==undefined&&data.epoch!==epoch)return;
    if(data.type==='ready'||data.type==='reset'){accepted=true;attempt=0;publish({phase:'running',message:'正在识别原文'});}
    if(data.type==='subtitle'&&revisions.accept(data)){publish({latestText:data.sourceText});void send('background','subtitle',{event:data}).catch(()=>{});}
-   if(data.type==='status')publish({phase:data.level==='error'?'error':state.phase,message:data.message||data.code});
+   if(data.type==='status'){if(data.level==='error')accepted=false;publish({phase:data.level==='error'?'error':state.phase,message:data.message||data.code});if(data.code==='audio_overload')reset('识别队列积压，重新同步');}
   }catch(error){publish({message:`服务响应错误：${String(error)}`});}
  };
  socket.onerror=()=>publish({message:'无法连接本地识别服务，请检查服务地址和配对令牌'});
  socket.onclose=(event)=>{
   if(!active||socket!==thisSocket)return;accepted=false;
-  if(event.code===1008){publish({phase:'error',message:`服务拒绝连接：${event.reason||'请检查配对令牌'}`});return;}
+  if(terminalClose(event.code)){publish({phase:'error',message:`服务拒绝连接：${event.reason||'请检查配对令牌'}`});return;}
   reset('连接中断，开始新识别段');attempt++;
   publish({phase:'reconnecting',message:`连接断开 (${event.code})，${Math.min(15,2**Math.min(attempt,4))} 秒后重试`});
   retry=setTimeout(connect,Math.min(15000,1000*2**Math.min(attempt,4)));
@@ -47,6 +47,7 @@ async function start(message:any){
  await stop();config={...defaults,...message.config};token=message.token;sessionId=message.sessionId;epoch=0;revisions.reset(sessionId,epoch);video=message.video;
  stream=await navigator.mediaDevices.getUserMedia({audio:{mandatory:{chromeMediaSource:'tab',chromeMediaSourceId:message.streamId}} as MediaTrackConstraints,video:false});
  context=new AudioContext();await context.audioWorklet.addModule(chrome.runtime.getURL('worklet.js'));await context.resume();
+ context.onstatechange=()=>publish({contextState:context?.state??'none'});
  contextWall=Date.now()-context.currentTime*1000;
  source=context.createMediaStreamSource(stream);
  // Pass-through is independent of WebSocket and the analysis branch.
