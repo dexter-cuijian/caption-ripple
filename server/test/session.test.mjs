@@ -153,3 +153,14 @@ test('epoch decoder reset creates a clean stream while retaining loaded model',(
  const previous=decoder.stream;decoder.accept(new Float32Array(1600).fill(.2));decoder.reset();
  assert.notEqual(decoder.stream,previous);assert.equal(decoder.active,false);assert.equal(decoder.totalSamples,0);
 });
+
+test('bounded native split forwards reason, finals monotone segment IDs with raw text',()=>{
+ const {session,events,workers}=setup();
+ for(let seq=0;seq<2;seq++){
+  session.clock(clock(seq));session.audio(Buffer.alloc(3200));
+  workers[0].emit('message',{type:'decoded',text:'啊 原文',final:true,splitReason:seq?'length':'duration',speechStarted:true,decodeMs:1});
+ }
+ const rows=events.filter(e=>e.type==='subtitle');
+ assert.deepEqual(rows.map(e=>[e.segmentId,e.phase,e.splitReason,e.sourceText]),[['0','final','duration','啊 原文'],['1','final','length','啊 原文']]);
+ assert.equal(session.history.length,2);session.close();
+});

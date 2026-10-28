@@ -87,6 +87,7 @@ export class Session {
       // clock.mediaTime corresponds to packet END (same instant as capturedAt).
       const mediaTime=this.segmentStart===null?(meta.mediaTime===null?null:meta.mediaTime-samples.length/16000*meta.playbackRate):this.segmentMediaTime;
       const event={type:'subtitle',sessionId:this.id,epoch:this.epoch,segmentId:String(this.segment),revision:this.revision,phase:result.final?'final':'interim',sourceText:text,sourceLanguage:this.language,start,end,mediaTime,createdAt:Date.now(),engine:ENGINE,speechStartAt:this.speechStartAt,audioEndAt:meta.capturedAt,timestampKind:'capture-estimate',metrics:{decodeMs:result.decodeMs??0,queueMs:packet.queueMs,serverReceivedAt:packet.receivedAt}};
+      if(result.splitReason)event.splitReason=result.splitReason;
       this.emit(event);this.lastText=text;
       const key=`${this.epoch}:${this.segment}:${this.revision}`;
       this.renderedRows.set(key,event);
