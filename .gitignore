@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.venv/
+.runtime/
+.models/
+.work/
+.superpowers/
+__pycache__/
+.pytest_cache/
+*.pyc
+.DS_Store
+*.log
+config.local.json
+*.egg-info/
