@@ -7,6 +7,7 @@ if(!(globalThis as any)[sentinel]){
  (globalThis as any)[sentinel]=true;
  const gate=new RevisionGate();let config:Config=defaults,selected:HTMLVideoElement|undefined,enabled=false,sessionId='',epoch=0,frameId=0;
  const ids=new WeakMap<HTMLVideoElement,string>(),observed=new WeakSet<HTMLVideoElement>();
+ let pageCaptionText='',pageCaptionAt=0,pageCaptionTimer:ReturnType<typeof setTimeout>|undefined,pageCaptionSerial=0;
  let lastUrl=location.href;let pending=false;let currentEvent:any;let displayedTranslationRevision=0;
  const host=document.createElement('div');host.id='local-caption-host';
  const shadow=host.attachShadow({mode:'closed'});const text=document.createElement('div');text.setAttribute('role','status');text.setAttribute('aria-live','polite');
@@ -32,13 +33,38 @@ if(!(globalThis as any)[sentinel]){
   fullscreenButton.hidden=!selected||!!fullscreen;
  }
  fullscreenButton.onclick=async()=>{try{const parent=selected?.parentElement;if(!parent)throw new Error('找不到视频容器');await parent.requestFullscreen();}catch(error){void send('background','content-warning',{message:`全屏失败：${String(error)}`});}};
+ function visiblePageCaption(){
+  if(!selected||selected.paused)return null;
+  for(const track of Array.from(selected.textTracks)){
+   const cues=Array.from(track.activeCues??[]);if(!cues.length)continue;
+   const text=cues.map(cue=>(cue as VTTCue).text??'').join(' ').replace(/<[^>]*>/g,'').replace(/\s+/g,' ').trim();
+   if(text)return{text,language:track.language||undefined};
+  }
+  if(location.hostname==='www.youtube.com'||location.hostname==='youtube.com'){
+   const text=Array.from(document.querySelectorAll('.ytp-caption-segment')).map(node=>node.textContent?.trim()??'').filter(Boolean).join(' ').replace(/\s+/g,' ').trim();
+   if(text)return{text,language:/[\u3400-\u9fff]/u.test(text)?'zh':'en'};
+  }
+  return null;
+ }
+ function capturePageCaption(){
+  if(!enabled||!selected||!sessionId)return;
+  const caption=visiblePageCaption();if(!caption)return;
+  if(caption.text===pageCaptionText&&Date.now()-pageCaptionAt<3000)return;
+  clearTimeout(pageCaptionTimer);const video=selected;
+  pageCaptionTimer=setTimeout(()=>{
+   const stable=visiblePageCaption();if(!stable||stable.text!==caption.text||selected!==video||!enabled)return;
+   if(stable.text!==pageCaptionText)pageCaptionSerial++;
+   pageCaptionText=stable.text;pageCaptionAt=Date.now();
+   void send('background','page-caption',{videoId:ids.get(video),caption:{...stable,mediaTime:video.currentTime,segmentId:`page-${pageCaptionSerial}`}}).catch(()=>{});
+  },250);
+ }
  function scan(){
   const items=[...document.querySelectorAll('video')];
   for(const v of items)if(!observed.has(v)){
    observed.add(v);
    for(const event of ['pause','playing','seeking','ratechange','emptied'])v.addEventListener(event,()=>{if(selected===v)void send('background','video-event',{video:info(v),reason:event});});
   }
-  void send('background','videos',{videos:items.map(info).filter(v=>v.area>0)}).catch(()=>{});position();
+  void send('background','videos',{videos:items.map(info).filter(v=>v.area>0)}).catch(()=>{});position();capturePageCaption();
  }
  function schedule(){if(!pending){pending=true;requestAnimationFrame(()=>{pending=false;scan();});}}
  new MutationObserver(records=>{if(records.some(r=>[...r.addedNodes].some(n=>n instanceof Element&&(n.tagName==='IFRAME'||n.querySelector('iframe')))))void send('background','frames-changed').catch(()=>{});if(records.some(r=>r.target!==host&&!shadow.contains(r.target)))schedule();}).observe(document.documentElement,{childList:true,subtree:true});
@@ -53,12 +79,12 @@ if(!(globalThis as any)[sentinel]){
   if(message.kind==='select'){
    if(message.sessionId&&(sessionId!==message.sessionId||epoch!==message.epoch)){sessionId=message.sessionId;epoch=message.epoch;gate.reset(sessionId,epoch);clearText();currentEvent=undefined;}
    frameId=message.frameId??0;config={...defaults,...message.config};
-   selected=[...document.querySelectorAll('video')].find(v=>ids.get(v)===message.id);
+   const next=[...document.querySelectorAll('video')].find(v=>ids.get(v)===message.id);if(next!==selected){pageCaptionText='';pageCaptionAt=0;clearTimeout(pageCaptionTimer);}selected=next;
    // Only the selected frame renders; top frame is the audio-only/cross-origin fallback.
-   enabled=!!selected||(!message.id&&window===window.top);position();
+   enabled=!!selected||(!message.id&&window===window.top);position();capturePageCaption();
   }
   if(message.kind==='epoch'){sessionId=message.sessionId;epoch=message.epoch;gate.reset(sessionId,epoch);clearText();currentEvent=undefined;}
-  if(message.kind==='clear'){enabled=false;sessionId='';clearText();host.remove();}
+  if(message.kind==='clear'){enabled=false;sessionId='';clearTimeout(pageCaptionTimer);pageCaptionText='';clearText();host.remove();}
   if(message.kind==='subtitle'&&enabled&&gate.accept(message.event)){
    const event=message.event;currentEvent=event;sourceLine.textContent=subtitlePage(event.displaySourceText??displaySource(event.sourceText,event.phase,event.splitReason)).text;targetLine.textContent='';displayedTranslationRevision=0;position();
    renderAndConfirm(()=>currentEvent===event&&host.isConnected&&!text.hidden&&document.visibilityState==='visible'&&overlayVisible(document.fullscreenElement instanceof HTMLVideoElement,host.getBoundingClientRect(),innerWidth,innerHeight)&&overlayVisible(false,text.getBoundingClientRect(),innerWidth,innerHeight),()=>{void send('background','rendered',{event:{type:'rendered',sessionId:event.sessionId,epoch:event.epoch,segmentId:event.segmentId,revision:event.revision,renderedAt:Date.now(),hasTranslation:false}});});

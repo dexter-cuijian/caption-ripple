@@ -80,6 +80,38 @@ test('observed name homophone is corrected and protected in translation with an 
  expect(source.matchedTerms[0].entry.target).toBe('Chiang Wan-an');expect(translation.text).toContain('Chiang Wan-an');
  await command('stop');
 });
+test('scoped place alias corrects audio source before glossary translation without changing raw ASR',async()=>{
+ vi.stubGlobal('Translator',{availability:async()=>'available',create:async()=>({translate:async(text:string)=>text,destroy:()=>{}})});
+ const entries=[{id:'place',source:'新莊',target:'Xinzhuang',sourceLang:'zh',targetLang:'en',scope:'video',videoUrl:'https://n.test/place',asrAliases:['辛庄']}];
+ await start(undefined,{scopeUrl:'https://n.test/place',glossary:{version:1,entries}});sockets[0].open();
+ sockets[0].onmessage({data:JSON.stringify({type:'subtitle',phase:'final',sessionId:'session',epoch:0,segmentId:'place',revision:1,sourceText:'辛庄选民',sourceLanguage:'zh'})});
+ await new Promise(resolve=>setTimeout(resolve,0));
+ const source=runtimeMessages.find(message=>message.kind==='subtitle').event;
+ const translation=runtimeMessages.find(message=>message.kind==='translation').event;
+ expect(source.sourceText).toBe('新莊选民');expect(source.sourceRaw).toBe('辛庄选民');
+ expect(source.matchedTerms[0].entry.target).toBe('Xinzhuang');expect(translation.text).toContain('Xinzhuang');
+ await command('stop');
+});
+test('page caption becomes the source and suppresses conflicting audio ASR',async()=>{
+ vi.stubGlobal('Translator',{availability:async()=>'available',create:async()=>({translate:async()=> '中文译文',destroy:()=>{}})});
+ await start({currentTime:12,paused:false},{config:{sourceLanguage:'en',targetLanguage:'zh'}});sockets[0].open();
+ await command('page-caption',{caption:{text:'Build mental toughness.',language:'en',mediaTime:12,segmentId:'page-1'}});
+ sockets[0].onmessage({data:JSON.stringify({type:'subtitle',phase:'final',sessionId:'session',epoch:0,segmentId:'0',revision:1,sourceText:'WRONG AUDIO',sourceLanguage:'en'})});
+ await new Promise(resolve=>setTimeout(resolve,0));
+ const sources=runtimeMessages.filter(message=>message.kind==='subtitle');
+ expect(sources).toHaveLength(1);expect(sources[0].event.sourceText).toBe('Build mental toughness.');
+ expect(sources[0].event.engine).toBe('page-caption');
+ expect(runtimeMessages.some(message=>message.kind==='translation'&&message.event.text==='中文译文')).toBe(true);
+ await command('rendered',{event:{type:'rendered',sessionId:'session',epoch:0,segmentId:'page-1',revision:1,renderedAt:Date.now()}});
+ expect(sockets[0].sent.filter((value:any)=>typeof value==='string').map(JSON.parse).some((value:any)=>value.type==='rendered'&&value.segmentId==='page-1')).toBe(false);
+ await command('stop');
+});
+test('ready state exposes the loaded ASR model to distinguish auto from bilingual detection',async()=>{
+ await start();sockets[0].open();
+ sockets[0].onmessage({data:JSON.stringify({type:'ready',sessionId:'session',epoch:0,engine:'sherpa-onnx/zipformer-zh'})});
+ expect(runtimeMessages.filter(message=>message.kind==='state').at(-1).state.asrEngine).toBe('sherpa-onnx/zipformer-zh');
+ await command('stop');
+});
 test('audio-only SPA navigation updates scoped terms/hotwords and cancels old translation epoch',async()=>{
  let late:(text:string)=>void=()=>{},calls=0;vi.stubGlobal('Translator',{availability:async()=>'available',create:async()=>({translate:async(text:string)=>{if(calls++===0)return new Promise<string>(resolve=>{late=resolve;});return text;},destroy:()=>{}})});
  const entries=[{id:'a',source:'蓝营',target:'pan-blue camp',sourceLang:'zh',targetLang:'en',scope:'video',videoUrl:'https://n.test/a'}];

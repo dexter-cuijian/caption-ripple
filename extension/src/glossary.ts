@@ -1,4 +1,4 @@
-export interface GlossaryEntry{id:string;source:string;target:string;sourceLang:string;targetLang:string;scope:'global'|'video';videoUrl?:string;reference?:string}
+export interface GlossaryEntry{id:string;source:string;target:string;sourceLang:string;targetLang:string;scope:'global'|'video';videoUrl?:string;reference?:string;asrAliases?:string[]}
 export interface GlossaryState{version:number;entries:GlossaryEntry[]}
 export interface TermMatch{start:number;end:number;sourceText:string;entry:GlossaryEntry}
 export const emptyGlossary:GlossaryState={version:0,entries:[]};
@@ -9,7 +9,9 @@ export function validateGlossary(value:unknown):GlossaryEntry[]{
  return value.map((raw:any)=>{if(!raw||typeof raw.source!=='string'||!raw.source.trim()||Array.from(raw.source).length>128||typeof raw.target!=='string'||!raw.target.trim()||Array.from(raw.target).length>160||!['zh','en'].includes(raw.sourceLang)||!['zh','en'].includes(raw.targetLang)||!['global','video'].includes(raw.scope))throw new Error('术语必须含有效source/target/sourceLang/targetLang/scope');
  if(raw.scope==='video'&&(typeof raw.videoUrl!=='string'||!/^https?:\/\//.test(raw.videoUrl)))throw new Error('当前视频范围必须指定HTTP(S) videoUrl');
  if(raw.reference&&!(typeof raw.reference==='string'&&/^https?:\/\//.test(raw.reference)))throw new Error('参考来源必须为HTTP(S)链接');let id=typeof raw.id==='string'&&raw.id&&!ids.has(raw.id)?raw.id:crypto.randomUUID();ids.add(id);
- return{id,source:raw.source.trim(),target:raw.target.trim(),sourceLang:raw.sourceLang,targetLang:raw.targetLang,scope:raw.scope,...(raw.scope==='video'?{videoUrl:raw.videoUrl}:{}),...(raw.reference?{reference:raw.reference}:{})};});
+ if(raw.asrAliases!==undefined&&(!Array.isArray(raw.asrAliases)||raw.asrAliases.length>8||raw.asrAliases.some((alias:unknown)=>typeof alias!=='string'||!alias.trim()||Array.from(alias).length>64)))throw new Error('常见误听写法最多8条，每条不超过64字');
+ const asrAliases:string[]|undefined=(raw.asrAliases as string[]|undefined)?.map(alias=>alias.trim()).filter(alias=>alias!==raw.source.trim());
+ return{id,source:raw.source.trim(),target:raw.target.trim(),sourceLang:raw.sourceLang,targetLang:raw.targetLang,scope:raw.scope,...(raw.scope==='video'?{videoUrl:raw.videoUrl}:{}),...(raw.reference?{reference:raw.reference}:{}),...(asrAliases?.length?{asrAliases:[...new Set(asrAliases)]}:{})};});
 }
 export function matchGlossary(text:string,entries:GlossaryEntry[],source:string,target:string,url:string):TermMatch[]{
  const candidates=entries.filter(entry=>entry.sourceLang===source&&entry.targetLang===target&&inScope(entry,url)).sort((a,b)=>b.source.length-a.source.length||Number(b.scope==='video')-Number(a.scope==='video'));

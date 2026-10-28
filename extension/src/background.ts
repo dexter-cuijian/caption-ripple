@@ -84,6 +84,7 @@ chrome.runtime.onMessage.addListener((message,sender,reply)=>{
   if(message.kind==='videos'&&sender.tab?.id===state.tabId){videos.report(sender.frameId??0,message.videos.map((video:any)=>({...video,documentId:sender.documentId})));await choose();}
   if(message.kind==='select-video'){manual=true;selected=message.id;await choose();}
   if(message.kind==='video-event'&&sender.tab?.id===state.tabId&&selected===`${sender.frameId}:${message.video.id}`){state.video={...message.video,frameId:sender.frameId};await send('offscreen','video',{video:state.video,reset:message.reason});}
+  if(message.kind==='page-caption'&&sender.tab?.id===state.tabId&&selected===`${sender.frameId}:${message.videoId}`&&state.phase!=='idle')await send('offscreen','page-caption',{caption:message.caption});
   if(message.kind==='rendered'&&sender.tab?.id===state.tabId)await send('offscreen','rendered',{event:message.event});
   if(message.kind==='content-warning'&&sender.tab?.id===state.tabId)state.message=message.message;
   return state;

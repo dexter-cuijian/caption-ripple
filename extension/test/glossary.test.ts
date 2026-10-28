@@ -22,6 +22,8 @@ test('term guard rejects Lan Yin and wrong fixed names while numeric/negation gu
 test('hotwords are scoped, language-filtered, unique and capped64/32 characters; examples are opt-in data',()=>{
  const entries=Array.from({length:70},(_,i)=>entry(`名称${i}`,'term'));entries.push(entry('长'.repeat(33),'long'));expect(hotwordsFor(entries,'zh','https://n.test')).toHaveLength(64);expect(hotwordsFor([entry('只此视频','specific',{scope:'video',videoUrl:'https://n.test/a'})],'zh','https://n.test/b')).toEqual([]);
  expect(validateGlossary([])).toEqual([]);expect(newsExamples.some(term=>term.source==='蒋万安'&&term.target==='Chiang Wan-an')).toBe(true);expect(()=>validateGlossary([{source:'x'}])).toThrow();
+ expect(validateGlossary([entry('新莊','Xinzhuang',{asrAliases:['辛庄','辛庄']})])[0].asrAliases).toEqual(['辛庄']);
+ expect(()=>validateGlossary([entry('新莊','Xinzhuang',{asrAliases:['x'.repeat(65)]})])).toThrow('误听');
 });
 import{mergeFinal,mergeTranslation}from'../src/history';
 import{LocalModelTranslationProvider}from'../src/providers';

@@ -10,6 +10,7 @@ let context:AudioContext|undefined,stream:MediaStream|undefined,source:MediaStre
 let socket:WebSocket|undefined,retry:ReturnType<typeof setTimeout>|undefined,active=false,accepted=false,attempt=0;
 let sessionId='',epoch=0,seq=0,sampleStart=0,anchor:number|null=null,contextWall=0;
 let latestSource:any;let glossary:GlossaryState=emptyGlossary,captureScopeUrl='';
+let pageCaptionUntil=0,pageCaptionMode=false;
 const scopeUrl=()=>video?.url||captureScopeUrl;
 const matched=(text:string,source:string,target:string)=>matchGlossary(text,effectiveGlossaryEntries(glossary.entries),source,target,scopeUrl());
 let config:Config=defaults,token='',video:VideoInfo|undefined;
@@ -40,7 +41,26 @@ const translations=new FinalTranslator({translate:translateDraft},translationCom
  publish({translationStatus:'unavailable',translationError:event.error});void send('background','translation-failed',{event}).catch(()=>{});
 },{deadlineMs:8000,onWork:active=>proofreader.prioritizeDraft(active)});
 
+function receiveSubtitle(data:any){
+ if(!revisions.accept(data))return;
+ if(data.engine==='page-caption')data.sourceRaw=data.sourceText;
+ else{const corrected=correctRecognizedNames(data,glossary.entries,scopeUrl());data.sourceRaw=corrected.sourceRaw;data.sourceText=corrected.sourceText;}
+ data.glossaryVersion=glossary.version;
+ data.matchedTerms=matched(data.sourceText,data.sourceLanguage==='auto'?(/[\u3400-\u9fff]/.test(data.sourceText)?'zh':'en'):data.sourceLanguage,config.targetLanguage);
+ data.displaySourceText=displaySource(data.sourceText,data.phase,data.splitReason);latestSource=data;
+ publish({latestText:data.sourceText,latestDisplayText:data.displaySourceText,latestTranslation:'',latestTranslationRevision:0});
+ const targetLanguage=config.targetLanguage;
+ void send('background','subtitle',{event:{...data,targetLanguage,translationState:config.translationEngine==='off'?'disabled':undefined}}).then(response=>{
+  if(response?.error)throw new Error(response.error);
+  if(data.phase==='final'&&config.translationEngine!=='off'){
+   translations.enqueue(data,targetLanguage);if(config.proofreading&&data.sourceLanguage!==targetLanguage)proofreader.observe(data,targetLanguage);
+   publish({languageLock:translations.language.locked??undefined});
+  }
+ }).catch(error=>publish({translationError:`字幕保存失败：${String(error)}`}));
+}
+
 function reset(reason:string){
+ pageCaptionMode=false;pageCaptionUntil=0;
  latestSource=undefined;const previousEpoch=epoch;epoch++;revisions.reset(sessionId,epoch);translations.reset(sessionId,epoch);proofreader.reset(sessionId,epoch);seq=0;sampleStart=0;anchor=null;accepted=false;
  publish({latestText:'',latestTranslation:'',translationError:undefined,latestTranslationRevision:0,latestDisplayText:'',message:reason});
  if(socket?.readyState===WebSocket.OPEN)socket.send(JSON.stringify({type:'reset',sessionId,epoch,mediaTime:video?.currentTime??null,sourceLanguage:config.sourceLanguage,hotwords:hotwordsFor(glossary.entries,config.sourceLanguage,scopeUrl()),reason}));
@@ -57,8 +77,8 @@ function connect(){
    const data=JSON.parse(event.data);
    if(data.sessionId&&data.sessionId!==sessionId)return;
    if(data.epoch!==undefined&&data.epoch!==epoch)return;
-   if(data.type==='ready'||data.type==='reset'){accepted=true;attempt=0;publish({phase:'running',message:'正在识别原文'});}
-   if(data.type==='subtitle'&&revisions.accept(data)){const corrected=correctRecognizedNames(data);data.sourceRaw=corrected.sourceRaw;data.sourceText=corrected.sourceText;data.glossaryVersion=glossary.version;data.matchedTerms=matched(data.sourceText,data.sourceLanguage==='auto'?(/[\u3400-\u9fff]/.test(data.sourceText)?'zh':'en'):data.sourceLanguage,config.targetLanguage);data.displaySourceText=displaySource(data.sourceText,data.phase,data.splitReason);latestSource=data;publish({latestText:data.sourceText,latestDisplayText:data.displaySourceText,latestTranslation:'',latestTranslationRevision:0});const targetLanguage=config.targetLanguage;void send('background','subtitle',{event:{...data,targetLanguage,translationState:config.translationEngine==='off'?'disabled':undefined}}).then(response=>{if(response?.error)throw new Error(response.error);if(data.phase==='final'&&config.translationEngine!=='off'){translations.enqueue(data,targetLanguage);if(config.proofreading)proofreader.observe(data,targetLanguage);publish({languageLock:translations.language.locked??undefined});}}).catch(error=>publish({translationError:`字幕保存失败：${String(error)}`}));}
+   if(data.type==='ready'||data.type==='reset'){accepted=true;attempt=0;publish({phase:'running',message:pageCaptionMode?'正在使用网页字幕':'正在识别原文',...(data.engine?{asrEngine:data.engine}:{})});}
+   if(data.type==='subtitle'&&!pageCaptionMode)receiveSubtitle(data);
    if(data.type==='status'){if(data.level==='error')accepted=false;publish({phase:data.level==='error'?'error':state.phase,message:data.message||data.code});if(data.code==='audio_overload')reset('识别队列积压，重新同步');}
   }catch(error){publish({message:`服务响应错误：${String(error)}`});}
  };
@@ -72,6 +92,7 @@ function connect(){
  };
 }
 async function stop(){
+ pageCaptionMode=false;pageCaptionUntil=0;
  latestSource=undefined;active=false;accepted=false;clearTimeout(retry);translations.reset('',-1);proofreader.reset('',-1);
  if(socket?.readyState===WebSocket.OPEN)socket.send(JSON.stringify({type:'stop',sessionId,epoch}));socket?.close();socket=undefined;
  if(worklet)worklet.port.onmessage=null;
@@ -94,6 +115,7 @@ async function start(message:any){
  source.connect(worklet);worklet.connect(silent);silent.connect(context.destination);
  worklet.port.onmessage=({data})=>{
   publish({rms:data.rms,outputConnected:true});
+  if(pageCaptionMode){if(Date.now()<pageCaptionUntil)return;reset('网页字幕中断，切回语音识别');if(socket?.readyState!==WebSocket.OPEN)publish({phase:'error',message:'网页字幕已结束，识别服务未连接；请检查原文语言与模型'});return;}
   if(!accepted||video?.paused||socket?.readyState!==WebSocket.OPEN)return;
   if(socket.bufferedAmount>64000){reset('音频发送积压，重新同步');return;}
   if(anchor===null)anchor=contextWall+data.contextTime*1000-100;
@@ -108,6 +130,14 @@ async function start(message:any){
 chrome.runtime.onMessage.addListener((message,_sender,reply)=>{
  if(message.target!=='offscreen')return;
  (async()=>{
+  if(message.kind==='page-caption'){
+   if(!active||!message.caption?.text)return{ok:false};
+   if(!pageCaptionMode)publish({phase:'running',message:'正在使用网页字幕'});
+   pageCaptionMode=true;pageCaptionUntil=Date.now()+6000;
+   const caption=message.caption;
+   receiveSubtitle({type:'subtitle',sessionId,epoch,segmentId:caption.segmentId,revision:1,phase:'final',sourceText:caption.text,sourceLanguage:caption.language??'auto',start:caption.mediaTime??0,end:(caption.mediaTime??0)+3,mediaTime:caption.mediaTime??null,createdAt:Date.now(),engine:'page-caption',speechStartAt:null,audioEndAt:Date.now(),timestampKind:'page-caption-observed'});
+   return{ok:true};
+  }
   if(message.kind==='prepare-translation'){try{await nativeProvider.prepare(message.sourceLanguage,message.targetLanguage);translations.retry();publish({translationStatus:'offscreen-ready',translationContext:'offscreen',translationError:undefined});return{ok:true,context:'offscreen'};}catch(error){return{ok:false,error:String(error)};}}
   if(message.kind==='translate-history'){if(message.token)token=message.token;const row=message.row;const source=row.sourceLanguage==='auto'?(/[\u3400-\u9fff]/.test(row.sourceText)?'zh':'en'):row.sourceLanguage;const startedAt=Date.now();try{const text=await withDeadline(signal=>translateDraft(row.sourceText,source,row.targetLanguage,signal,{entries:(row.matchedTerms??[]).map((match:any)=>match.entry),url:row.url}),8000);return{ok:true,event:{type:'translation',sessionId:row.sessionId,epoch:row.epoch,segmentId:row.segmentId,sourceRevision:row.revision,translationRevision:(row.translationRevision??0)+1,targetLanguage:row.targetLanguage,glossaryVersion:row.glossaryVersion,matchedTerms:row.matchedTerms,text,engine:draftEngine,startedAt,completedAt:Date.now()}};}catch(error){return{ok:false,error:String(error)};}}
   if(message.kind==='glossary'){const next={version:message.glossary?.version??0,entries:validateGlossary(message.glossary?.entries??[])};const changed=next.version!==glossary.version;glossary=next;if(changed&&active)reset('术语表版本已更新，开始新识别段');}
@@ -117,7 +147,7 @@ chrome.runtime.onMessage.addListener((message,_sender,reply)=>{
   if(message.kind==='stop')await stop();
   if(message.kind==='page-location'&&/^https?:\/\//.test(message.url)&&message.url!==captureScopeUrl){captureScopeUrl=message.url;video=undefined;if(active)reset('页面地址已更新，重新应用当前范围术语');}
   if(message.kind==='video'){video=message.video;if(message.reset&&active)reset(message.reset);}
-  if(message.kind==='rendered'&&accepted&&socket?.readyState===WebSocket.OPEN)socket.send(JSON.stringify(message.event));
+  if(message.kind==='rendered'&&accepted&&socket?.readyState===WebSocket.OPEN&&!String(message.event?.segmentId??'').startsWith('page-'))socket.send(JSON.stringify(message.event));
   return {ok:true};
  })().then(reply,error=>{publish({phase:'error',message:String(error)});reply({ok:false,error:String(error)});});return true;
 });
