@@ -1,4 +1,4 @@
-import {subtitlePage}from'./display';
+import {subtitlePage,displaySource}from'./display';
 import {RevisionGate} from './core';
 import {renderAndConfirm,overlayVisible,translationMatches} from './render';
 import {defaults,send,type Config,type VideoInfo} from './shared';
@@ -17,7 +17,7 @@ if(!(globalThis as any)[sentinel]){
  shadow.append(style,text,fullscreenButton);
  function info(v:HTMLVideoElement):VideoInfo{
   if(!ids.has(v))ids.set(v,crypto.randomUUID());const rect=v.getBoundingClientRect();const visible=getComputedStyle(v).visibility!=='hidden'&&getComputedStyle(v).display!=='none';
-  return{id:ids.get(v)!,url:location.href,title:document.title,currentTime:Number.isFinite(v.currentTime)?v.currentTime:null,live:!Number.isFinite(v.duration),playbackRate:v.playbackRate,paused:v.paused,observedAt:Date.now(),area:visible?Math.max(0,Math.min(innerWidth,rect.right)-Math.max(0,rect.left))*Math.max(0,Math.min(innerHeight,rect.bottom)-Math.max(0,rect.top)):0,label:v.getAttribute('aria-label')||v.currentSrc||document.title};
+  return{id:ids.get(v)!,mediaUrl:v.currentSrc||v.src,url:location.href,title:document.title,currentTime:Number.isFinite(v.currentTime)?v.currentTime:null,live:!Number.isFinite(v.duration)||!!v.closest('.ytp-live')||!!document.querySelector('meta[itemprop="isLiveBroadcast"][content="True"],meta[itemprop="isLiveBroadcast"][content="true"]'),playbackRate:v.playbackRate,paused:v.paused,observedAt:Date.now(),area:visible?Math.max(0,Math.min(innerWidth,rect.right)-Math.max(0,rect.left))*Math.max(0,Math.min(innerHeight,rect.bottom)-Math.max(0,rect.top)):0,label:v.getAttribute('aria-label')||v.currentSrc||document.title};
  }
  function position(){
   if(!enabled){host.remove();return;}
@@ -48,7 +48,7 @@ if(!(globalThis as any)[sentinel]){
   if(message.target!=='content')return;
   if(message.kind==='inspect')scan();
   if(message.kind==='config'){config={...defaults,...message.config};position();}
-  if(message.kind==='seek'&&selected&&ids.get(selected)===message.id&&Number.isFinite(message.time)){selected.currentTime=Math.max(0,message.time);}
+  if(message.kind==='seek'&&selected&&ids.get(selected)===message.id&&Number.isFinite(message.time)&&!info(selected).live&&info(selected).mediaUrl===message.mediaUrl){selected.currentTime=Math.max(0,message.time);}
   if(message.kind==='translation'&&enabled&&translationMatches(currentEvent,message.event,displayedTranslationRevision)){displayedTranslationRevision=message.event.translationRevision??1;targetLine.textContent=message.event.text===currentEvent.sourceText?'':subtitlePage(message.event.text).text;position();}
   if(message.kind==='select'){
    if(message.sessionId&&(sessionId!==message.sessionId||epoch!==message.epoch)){sessionId=message.sessionId;epoch=message.epoch;gate.reset(sessionId,epoch);clearText();currentEvent=undefined;}
@@ -60,7 +60,7 @@ if(!(globalThis as any)[sentinel]){
   if(message.kind==='epoch'){sessionId=message.sessionId;epoch=message.epoch;gate.reset(sessionId,epoch);clearText();currentEvent=undefined;}
   if(message.kind==='clear'){enabled=false;sessionId='';clearText();host.remove();}
   if(message.kind==='subtitle'&&enabled&&gate.accept(message.event)){
-   const event=message.event;currentEvent=event;sourceLine.textContent=subtitlePage(event.sourceText).text;targetLine.textContent='';displayedTranslationRevision=0;position();
+   const event=message.event;currentEvent=event;sourceLine.textContent=subtitlePage(event.displaySourceText??displaySource(event.sourceText,event.phase,event.splitReason)).text;targetLine.textContent='';displayedTranslationRevision=0;position();
    renderAndConfirm(()=>currentEvent===event&&host.isConnected&&!text.hidden&&document.visibilityState==='visible'&&overlayVisible(document.fullscreenElement instanceof HTMLVideoElement,host.getBoundingClientRect(),innerWidth,innerHeight)&&overlayVisible(false,text.getBoundingClientRect(),innerWidth,innerHeight),()=>{void send('background','rendered',{event:{type:'rendered',sessionId:event.sessionId,epoch:event.epoch,segmentId:event.segmentId,revision:event.revision,renderedAt:Date.now(),hasTranslation:false}});});
   }
   reply({ok:true});

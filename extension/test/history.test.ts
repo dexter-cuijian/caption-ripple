@@ -18,3 +18,9 @@ test('reset cancellation marks pending rows without destroying completed history
  const history=await import('../src/history');await history.saveFinal({...row('pending'),sessionId:'cancel'});await history.saveFinal({...row('complete'),sessionId:'cancel'});await history.saveTranslation({sessionId:'cancel',epoch:0,segmentId:'complete',sourceRevision:1,targetLanguage:'en',text:'Done'});
  await history.cancelPending('cancel',0,'new epoch');const result=await history.queryHistory({session:'cancel'});expect(result.rows.find(row=>row.segmentId==='pending')?.translationState).toBe('cancelled');expect(result.rows.find(row=>row.segmentId==='complete')?.translatedText).toBe('Done');await history.closeHistory();
 });
+test('delayed config read followed by reset retains old final as cancelled with no live broadcast',async()=>{
+ const history=await import('../src/history');let active=true,release:(value:any)=>void=()=>{};const broadcasts:any[]=[];
+ const save=history.persistReceivedFinal({...row('race'),sessionId:'retired'},()=>new Promise(resolve=>{release=resolve;}),()=>active,async()=>{broadcasts.push('old');});
+ active=false;await history.cancelPending('retired',0,'reset');release({targetLanguage:'en'});await save;
+ const result=await history.queryHistory({session:'retired'});expect(result.rows[0].translationState).toBe('cancelled');expect(result.rows[0].translationError).toContain('重试');expect(broadcasts).toHaveLength(0);await history.closeHistory();
+});

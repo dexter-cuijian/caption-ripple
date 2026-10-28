@@ -9,3 +9,9 @@ export function subtitlePage(raw:string){
  else{const words=text.split(/\s+/);for(let offset=0;offset<words.length;offset+=12)pages.push(words.slice(offset,offset+12).join(' '));}}
  return{text:pages.at(-1)??'',index:Math.max(0,pages.length-1),count:pages.length};
 }
+/** Conservative display-only cleanup. Never modify interim hypotheses or meaningful discourse words. */
+export function displaySource(raw:string,phase:string,splitReason?:string){
+ if(phase!=='final')return raw;
+ let text=raw.replace(/(^|[，。！？、\s])(?:嗯|啊)(?=[，。！？、\s]|$)/gu,'$1').replace(/(^|[，。！？、\s])(?:[嗯啊][\s，、]*){2,}(?=[，。！？、\s]|$)/gu,'$1').replace(/^[，、\s]+|[，、\s]+$/gu,'').replace(/[，、]{2,}/g,'，');
+ if(text&&!/[。！？!?，,.;；]$/.test(text))text+=/[\u3400-\u9fff]/.test(text)?(splitReason==='silence'?'。':'，'):(splitReason==='silence'?'.':',');return text;
+}

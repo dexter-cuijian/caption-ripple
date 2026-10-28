@@ -1,3 +1,5 @@
+import{NativeTranslationProvider,LocalModelTranslationProvider,ContextProofreader,withDeadline}from'./providers';
+import{displaySource}from'./display';
 import {translationMatches}from'./render';
 import {FinalTranslator,translatorAPI,type NativeTranslator} from './translation';
 import {RevisionGate,terminalClose} from './core';
@@ -10,29 +12,31 @@ let config:Config=defaults,token='',video:VideoInfo|undefined;
 let state:import('./shared').State={...initialState};const revisions=new RevisionGate();
 const publish=(update:Partial<typeof state>)=>{state={...state,...update,sessionId,epoch,contextState:context?.state??'none'};void send('background','state',{state}).catch(()=>{});};
 
-const nativeInstances=new Map<string,NativeTranslator>();
-async function prepareNative(sourceLanguage:string,targetLanguage:string){
- const api=translatorAPI();if(!api)throw new Error('此执行环境没有 Chrome Translator API');
- const availability=await api.availability({sourceLanguage,targetLanguage});
- if(availability!=='available')throw new Error(`翻译模型 ${availability}；请在侧栏点击“准备本地翻译”下载`);
- const key=`${sourceLanguage}:${targetLanguage}`;
- if(!nativeInstances.has(key))nativeInstances.set(key,await api.create({sourceLanguage,targetLanguage}));
- return nativeInstances.get(key)!;
+const nativeProvider=new NativeTranslationProvider(translatorAPI),localProvider=new LocalModelTranslationProvider(()=>token);
+let draftEngine='chrome-translator';
+function translationCompleted(event:import('./history').TranslationEvent){
+ publish({...(translationMatches(latestSource,event,state.latestTranslationRevision??0)?{latestTranslation:event.text,latestTranslationRevision:event.translationRevision??1}:{}),translationStatus:'ready',translationError:undefined});
+ if((event.translationRevision??1)===1)proofreader.recordDraft(event);
+ void send('background','translation',{event:{...event,engine:event.engine??draftEngine}}).then(response=>{if(response?.error)throw new Error(response.error);}).catch(error=>publish({translationError:String(error)}));
 }
-const translations=new FinalTranslator({translate:async(text,sourceLanguage,targetLanguage,signal)=>{
+const proofreader=new ContextProofreader(localProvider,event=>{publish({proofreadingStatus:'revised',proofreadingError:undefined});translationCompleted(event);},event=>{publish({proofreadingStatus:event.proofreadingState,proofreadingError:event.error});void send('background','proofreading-failed',{event}).catch(()=>{});});
+async function translateDraft(text:string,sourceLanguage:string,targetLanguage:string,signal?:AbortSignal){
  if(config.translationEngine==='off')throw new Error('翻译已关闭；原文保存在历史中');
- try{const native=await prepareNative(sourceLanguage,targetLanguage);publish({translationStatus:'offscreen-ready',translationContext:'offscreen',translationError:undefined});return await native.translate(text,{signal});}
+ if(config.translationEngine!=='local'){
+ try{const result=await nativeProvider.translate(text,sourceLanguage,targetLanguage,signal);draftEngine='chrome-translator';publish({translationContext:'offscreen',translationError:undefined});return result;}
  catch(error){if(signal?.aborted)throw error;
- const response=await send('background','panel-translate',{text,sourceLanguage,targetLanguage});
- if(!response?.ok)throw new Error(response?.error||String(error));publish({translationContext:'panel'});return response.text;
- }
-}},event=>{publish({...(translationMatches(latestSource,event)?{latestTranslation:event.text}:{}),translationStatus:'ready',translationError:undefined});void send('background','translation',{event:{...event,engine:event.engine??'chrome-translator'}}).then(response=>{if(response?.error)throw new Error(response.error);}).catch(error=>publish({translationError:String(error)}));},event=>{
+ const requestId=crypto.randomUUID();const abort=()=>{void send('background','cancel-panel-translation',{requestId}).catch(()=>{});};signal?.addEventListener('abort',abort,{once:true});
+ try{const response=await withDeadline(()=>send('background','panel-translate',{requestId,text,sourceLanguage,targetLanguage}),3000,signal,abort);if(response?.ok){draftEngine='chrome-translator/panel';publish({translationContext:'panel'});return response.text;}}catch(error){if(signal?.aborted)throw error;}finally{signal?.removeEventListener('abort',abort);}
+ }}
+ const result=await localProvider.translate(text,sourceLanguage,targetLanguage,signal);draftEngine='local-hy-mt2';publish({translationContext:'local',translationError:undefined});return result;
+}
+const translations=new FinalTranslator({translate:translateDraft},translationCompleted,event=>{
  publish({translationStatus:'unavailable',translationError:event.error});void send('background','translation-failed',{event}).catch(()=>{});
-});
+},{deadlineMs:8000,onWork:active=>proofreader.prioritizeDraft(active)});
 
 function reset(reason:string){
- latestSource=undefined;const previousEpoch=epoch;epoch++;revisions.reset(sessionId,epoch);translations.reset(sessionId,epoch);seq=0;sampleStart=0;anchor=null;accepted=false;
- publish({latestText:'',latestTranslation:'',translationError:undefined,message:reason});
+ latestSource=undefined;const previousEpoch=epoch;epoch++;revisions.reset(sessionId,epoch);translations.reset(sessionId,epoch);proofreader.reset(sessionId,epoch);seq=0;sampleStart=0;anchor=null;accepted=false;
+ publish({latestText:'',latestTranslation:'',translationError:undefined,latestTranslationRevision:0,latestDisplayText:'',message:reason});
  if(socket?.readyState===WebSocket.OPEN)socket.send(JSON.stringify({type:'reset',sessionId,epoch,mediaTime:video?.currentTime??null,sourceLanguage:config.sourceLanguage,reason}));
  void send('background','epoch',{sessionId,epoch,previousEpoch}).catch(()=>{});
 }
@@ -48,7 +52,7 @@ function connect(){
    if(data.sessionId&&data.sessionId!==sessionId)return;
    if(data.epoch!==undefined&&data.epoch!==epoch)return;
    if(data.type==='ready'||data.type==='reset'){accepted=true;attempt=0;publish({phase:'running',message:'正在识别原文'});}
-   if(data.type==='subtitle'&&revisions.accept(data)){latestSource=data;publish({latestText:data.sourceText,latestTranslation:''});const targetLanguage=config.targetLanguage;void send('background','subtitle',{event:{...data,targetLanguage,translationState:config.translationEngine==='off'?'disabled':undefined}}).then(response=>{if(response?.error)throw new Error(response.error);if(data.phase==='final'&&config.translationEngine!=='off'){translations.enqueue(data,targetLanguage);publish({languageLock:translations.language.locked??undefined});}}).catch(error=>publish({translationError:`字幕保存失败：${String(error)}`}));}
+   if(data.type==='subtitle'&&revisions.accept(data)){data.sourceRaw=data.sourceText;data.displaySourceText=displaySource(data.sourceText,data.phase,data.splitReason);latestSource=data;publish({latestText:data.sourceText,latestDisplayText:data.displaySourceText,latestTranslation:'',latestTranslationRevision:0});const targetLanguage=config.targetLanguage;void send('background','subtitle',{event:{...data,targetLanguage,translationState:config.translationEngine==='off'?'disabled':undefined}}).then(response=>{if(response?.error)throw new Error(response.error);if(data.phase==='final'&&config.translationEngine!=='off'){translations.enqueue(data,targetLanguage);if(config.proofreading)proofreader.observe(data,targetLanguage);publish({languageLock:translations.language.locked??undefined});}}).catch(error=>publish({translationError:`字幕保存失败：${String(error)}`}));}
    if(data.type==='status'){if(data.level==='error')accepted=false;publish({phase:data.level==='error'?'error':state.phase,message:data.message||data.code});if(data.code==='audio_overload')reset('识别队列积压，重新同步');}
   }catch(error){publish({message:`服务响应错误：${String(error)}`});}
  };
@@ -62,7 +66,7 @@ function connect(){
  };
 }
 async function stop(){
- latestSource=undefined;active=false;accepted=false;clearTimeout(retry);translations.reset('',-1);
+ latestSource=undefined;active=false;accepted=false;clearTimeout(retry);translations.reset('',-1);proofreader.reset('',-1);
  if(socket?.readyState===WebSocket.OPEN)socket.send(JSON.stringify({type:'stop',sessionId,epoch}));socket?.close();socket=undefined;
  if(worklet)worklet.port.onmessage=null;
  for(const node of [worklet,source,silent])try{node?.disconnect();}catch{}
@@ -71,7 +75,7 @@ async function stop(){
  publish({...initialState});
 }
 async function start(message:any){
- await stop();seq=0;sampleStart=0;anchor=null;attempt=0;contextWall=0;config={...defaults,...message.config};token=message.token;sessionId=message.sessionId;epoch=0;revisions.reset(sessionId,epoch);translations.reset(sessionId,epoch);video=message.video;
+ await stop();seq=0;sampleStart=0;anchor=null;attempt=0;contextWall=0;config={...defaults,...message.config};token=message.token;sessionId=message.sessionId;epoch=0;revisions.reset(sessionId,epoch);translations.reset(sessionId,epoch);proofreader.reset(sessionId,epoch);video=message.video;
  try{
  stream=await navigator.mediaDevices.getUserMedia({audio:{mandatory:{chromeMediaSource:'tab',chromeMediaSourceId:message.streamId}} as MediaTrackConstraints,video:false});
  context=new AudioContext();await context.audioWorklet.addModule(chrome.runtime.getURL('worklet.js'));await context.resume();
@@ -98,9 +102,10 @@ async function start(message:any){
 chrome.runtime.onMessage.addListener((message,_sender,reply)=>{
  if(message.target!=='offscreen')return;
  (async()=>{
-  if(message.kind==='prepare-translation'){try{await prepareNative(message.sourceLanguage,message.targetLanguage);translations.retry();publish({translationStatus:'offscreen-ready',translationContext:'offscreen',translationError:undefined});return{ok:true,context:'offscreen'};}catch(error){return{ok:false,error:String(error)};}}
+  if(message.kind==='prepare-translation'){try{await nativeProvider.prepare(message.sourceLanguage,message.targetLanguage);translations.retry();publish({translationStatus:'offscreen-ready',translationContext:'offscreen',translationError:undefined});return{ok:true,context:'offscreen'};}catch(error){return{ok:false,error:String(error)};}}
+  if(message.kind==='translate-history'){if(message.token)token=message.token;const row=message.row;const source=row.sourceLanguage==='auto'?(/[\u3400-\u9fff]/.test(row.sourceText)?'zh':'en'):row.sourceLanguage;const startedAt=Date.now();try{const text=await withDeadline(signal=>translateDraft(row.sourceRaw??row.sourceText,source,row.targetLanguage,signal),8000);return{ok:true,event:{type:'translation',sessionId:row.sessionId,epoch:row.epoch,segmentId:row.segmentId,sourceRevision:row.revision,translationRevision:(row.translationRevision??0)+1,targetLanguage:row.targetLanguage,text,engine:draftEngine,startedAt,completedAt:Date.now()}};}catch(error){return{ok:false,error:String(error)};}}
   if(message.kind==='retry-translation'){translations.retry();}
-  if(message.kind==='config'){const changed=config.sourceLanguage!==message.config.sourceLanguage||config.targetLanguage!==message.config.targetLanguage||config.translationEngine!==message.config.translationEngine;config={...defaults,...message.config};if(changed&&active)reset('语言或翻译引擎设置已更新');}
+  if(message.kind==='config'){const changed=config.sourceLanguage!==message.config.sourceLanguage||config.targetLanguage!==message.config.targetLanguage||config.translationEngine!==message.config.translationEngine||config.proofreading!==message.config.proofreading;config={...defaults,...message.config};if(changed&&active)reset('语言或翻译引擎设置已更新');}
   if(message.kind==='start')await start(message);
   if(message.kind==='stop')await stop();
   if(message.kind==='video'){video=message.video;if(message.reset&&active)reset(message.reset);}
