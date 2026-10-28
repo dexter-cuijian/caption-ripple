@@ -6,6 +6,14 @@ test('final source and translation patch survive closing and reopening connectio
  const history=await import('../src/history');await history.saveFinal(row());await history.saveTranslation({sessionId:'persistent',epoch:0,segmentId:'a',sourceRevision:1,targetLanguage:'en',text:'No growth of 20%',engine:'chrome',startedAt:1,completedAt:2});
  await history.closeHistory();const result=await history.queryHistory({session:'persistent'});expect(result.total).toBe(1);expect(result.rows[0].translatedText).toBe('No growth of 20%');await history.closeHistory();
 });
+test('compact current-page history filters by the active page URL and limits visible rows',async()=>{
+ const history=await import('../src/history');
+ for(let i=0;i<6;i++)await history.saveFinal({...row(`current-${i}`),sessionId:'compact',url:'https://example.com/news',createdAt:i+100});
+ await history.saveFinal({...row('other'),sessionId:'compact',url:'https://example.com/other',createdAt:999});
+ const result=await history.queryHistory({session:'compact',url:'https://example.com/news',pageSize:3});
+ expect(result.total).toBe(6);expect(result.rows).toHaveLength(3);expect(result.rows.every(item=>item.url==='https://example.com/news')).toBe(true);
+ await history.closeHistory();
+});
 test('IndexedDB upserts serialize revisions, reject old translation, keep interim out and paginate 100',async()=>{
  const history=await import('../src/history');await Promise.all(Array.from({length:105},(_,i)=>history.saveFinal({...row(String(i+1)),sessionId:'pages'})));
  await history.saveFinal({...row('1'),sessionId:'pages',phase:'interim',revision:20});

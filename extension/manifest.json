@@ -27,7 +27,7 @@
     "type": "module"
   },
   "action": {
-    "default_title": "打开字幕与历史侧栏",
+    "default_title": "打开实时字幕侧栏",
     "default_icon": {
       "16": "icons/icon-16.png",
       "32": "icons/icon-32.png"
