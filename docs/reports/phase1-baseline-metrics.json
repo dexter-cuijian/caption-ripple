@@ -1,0 +1,18 @@
+{
+  "status": "preliminary-native-lifecycle-blocker",
+  "kind": "real-Chrome-tabCapture-to-render",
+  "extensionId": "goakdeepddjbhmdmodgipgoobcnknhbi",
+  "audio": "upstream real human paraformer-zh.wav played as MP4",
+  "firstRenderSamples": 33,
+  "renderAcks": 130,
+  "firstCharacterP50Ms": 776,
+  "firstCharacterP95Ms": 1175,
+  "firstCharacterMaxMs": 1175,
+  "onsetPrecisionMs": 100,
+  "audibility": "User explicitly confirmed normal audible playback",
+  "notes": [
+    "Recorded before repeated Stop/Start exposed native NAPI process abort. Must reverify after lifecycle fix.",
+    "No model word timestamps; metrics based on capture speech onset and real DOM animation-frame ACK.",
+    "Not a news/live-site acceptance yet."
+  ]
+}

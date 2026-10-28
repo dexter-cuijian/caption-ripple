@@ -1,0 +1,17 @@
+{
+  "kind": "real-Chrome-tabCapture-to-DOM-render-ACK",
+  "sessionId": "395c6813-8cc3-45f8-b384-8ec13216464b",
+  "firstRenderSamples": 2,
+  "renderAcks": 154,
+  "P50Ms": 792,
+  "P95Ms": 1277,
+  "maxMs": 1277,
+  "onsetPrecisionMs": 100,
+  "timestampKind": "capture-estimate",
+  "limitations": [
+    "Model supplies no word timestamps.",
+    "This report uses retained rotating logs only; pass a sessionId to isolate a run.",
+    "Speech-onset detection is energy-based and may include music.",
+    "Cold and warm samples are not separated automatically."
+  ]
+}
