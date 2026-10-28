@@ -25,6 +25,15 @@ test('short connector clause is not committed by its own comma',()=>{
  assert.equal(observe(p,'但是呢我们会尽量按照这样的一个选战节奏稳定大家的军心').final,false);
 });
 
+test('stable interim displays an internal comma without committing or changing raw speech',()=>{
+ const source='但是呢我们会尽量按照这样的一个选战节奏稳定大家的军心';
+ const p=new StablePunctuation(text=>text.replace('但是呢','但是呢，')+'。');
+ const result=observe(p,source);
+ assert.equal(result.final,false);
+ assert.equal(result.text,'但是呢，我们会尽量按照这样的一个选战节奏稳定大家的军心');
+ assert.equal(result.rawSourceText,source);
+});
+
 test('word-changing punctuator rejected and committed-prefix rewrite raises explicit guard',()=>{
  const bad=new StablePunctuation(()=>raw.replace('三十','四十')+'。');const result=observe(bad,raw);assert.equal(result.final,false);assert.equal(result.text,raw);assert.equal(result.punctuationCode,'punctuation_changed_source');
  const p=new StablePunctuation(punctuation);observe(p,raw);assert.throws(()=>p.update(raw.replace('三十','四十'),{audioMs:700}),error=>error.code==='source_prefix_conflict');

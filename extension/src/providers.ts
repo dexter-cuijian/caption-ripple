@@ -34,7 +34,7 @@ export class LocalModelTranslationProvider implements TranslationProvider,Correc
  return withDeadline(async active=>{
  const matches=this.terms(previous,source,target);const terminology=[...new Map(matches.map(match=>[match.entry.source,{source:match.entry.source,target:match.entry.target}])).values()];
  const prompt=`【背景信息】\n固定术语映射（必须逐项采用，不可换名）：${JSON.stringify(terminology)}\n后续原文语境：${next||'无'}\n原文初稿译文（仅供参考，可能有误）：${draft||'无'}\n保留转折、比较、否定、数字和专名，不得颠倒关系，不得添加后续语境中的事实。\n请结合背景信息将以下文本翻译为${target==='zh'?'简体中文':'英语'}，只输出译文：${previous}`;
- const response=await this.request('http://127.0.0.1:8081/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`},body:JSON.stringify({model:'local-hy-mt2',messages:[{role:'user',content:prompt}],temperature:0,max_tokens:256,stream:false}),signal:active});
+ const response=await this.request.call(globalThis,'http://127.0.0.1:8081/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`},body:JSON.stringify({model:'local-hy-mt2',messages:[{role:'user',content:prompt}],temperature:0,max_tokens:256,stream:false}),signal:active});
  if(!response.ok)throw new Error(`本机 Hy-MT2 HTTP ${response.status}`);const data=await response.json();const text=data?.choices?.[0]?.message?.content;if(typeof text!=='string'||!text.trim())throw new Error('本机模型返回空译文');if(!termsConsistent(text,matches))throw Object.assign(new Error('校对未采用，保留初稿：固定术语名称不一致'),{code:'glossary_mismatch'});return text.trim();
  },2900,signal);
  }
@@ -65,7 +65,7 @@ export class ContextProofreader{
  recordDraft(event:TranslationEvent){if(event.sessionId===this.session&&event.epoch===this.epoch&&(event.translationRevision??1)===1){this.drafts.set(event.segmentId,event);void this.drain();}}
  observe(event:any,targetLanguage:string){if(event.phase!=='final'||event.sessionId!==this.session||event.epoch!==this.epoch)return;
  this.latest.set(event.segmentId,event.revision);
- if(this.previous&&this.previous.segmentId!==event.segmentId){const task={previous:this.previous,next:event.sourceRaw??event.sourceText,targetLanguage};if(this.queue.length>=2){const dropped=this.queue.shift();this.failure({...dropped.previous,sourceRevision:dropped.previous.revision,targetLanguage:dropped.targetLanguage,error:'本轮校对未采用，保留初稿：新字幕优先，校对队列已满',proofreadingState:'skipped'});}this.queue.push(task);}
+ if(this.previous&&this.previous.segmentId!==event.segmentId){const task={previous:this.previous,next:event.sourceText,targetLanguage};if(this.queue.length>=2){const dropped=this.queue.shift();this.failure({...dropped.previous,sourceRevision:dropped.previous.revision,targetLanguage:dropped.targetLanguage,error:'本轮校对未采用，保留初稿：新字幕优先，校对队列已满',proofreadingState:'skipped'});}this.queue.push(task);}
  this.previous=event;void this.drain();
  }
  prioritizeDraft(active:boolean){this.paused=active;if(active&&this.controller){this.preempted.add(this.controller);this.controller.abort();}else if(!active)void this.drain();}
@@ -73,9 +73,9 @@ export class ContextProofreader{
  if(this.busy||this.paused||!this.queue.length)return;const task=this.queue[0],draft=this.drafts.get(task.previous.segmentId);if(!draft)return;
  this.queue.shift();this.busy=true;const generation=this.generation;const controller=new AbortController();this.controller=controller;const previous=task.previous,startedAt=Date.now();
  try{const source=previous.sourceLanguage==='auto'?(/[\u3400-\u9fff]/.test(previous.sourceText)?'zh':'en'):previous.sourceLanguage;
- const text=await withDeadline(signal=>this.provider.proofread(previous.sourceRaw??previous.sourceText,task.next,draft.text,source,task.targetLanguage,signal),3000,controller.signal);
+ const text=await withDeadline(signal=>this.provider.proofread(previous.sourceText,task.next,draft.text,source,task.targetLanguage,signal),3000,controller.signal);
  if(generation!==this.generation||controller.signal.aborted||this.latest.get(previous.segmentId)!==previous.revision)return;
- if(!correctionSafe(previous.sourceRaw??previous.sourceText,text,task.targetLanguage)){this.failure({...previous,sourceRevision:previous.revision,targetLanguage:task.targetLanguage,error:'本轮校对未采纳：数字、否定或比较结构守门未通过',proofreadingState:'rejected'});return;}
+ if(!correctionSafe(previous.sourceText,text,task.targetLanguage)){this.failure({...previous,sourceRevision:previous.revision,targetLanguage:task.targetLanguage,error:'本轮校对未采纳：数字、否定或比较结构守门未通过',proofreadingState:'rejected'});return;}
  this.emit({type:'translation',sessionId:previous.sessionId,epoch:previous.epoch,segmentId:previous.segmentId,sourceRevision:previous.revision,translationRevision:2,glossaryVersion:previous.glossaryVersion,matchedTerms:previous.matchedTerms,targetLanguage:task.targetLanguage,text,engine:'local-hy-mt2/context',phase:'final',startedAt,completedAt:Date.now()});
  }catch(error){if(generation===this.generation){if(controller.signal.aborted&&this.preempted.has(controller)){if(this.queue.length<2)this.queue.unshift(task);else this.failure({...previous,sourceRevision:previous.revision,targetLanguage:task.targetLanguage,error:'本轮校对未采用，保留初稿：新字幕优先，已放弃被抢占的最旧校对',proofreadingState:'skipped'});}else if(!controller.signal.aborted&&(error as any)?.code==='glossary_mismatch')this.failure({...previous,sourceRevision:previous.revision,targetLanguage:task.targetLanguage,error:String(error),proofreadingState:'rejected'});else if(!controller.signal.aborted)this.failure({...previous,sourceRevision:previous.revision,targetLanguage:task.targetLanguage,error:`本机校对暂停：${String(error)}`,proofreadingState:'paused'});}}
  finally{if(generation===this.generation){this.busy=false;this.controller=undefined;if(!this.paused)void this.drain();}}

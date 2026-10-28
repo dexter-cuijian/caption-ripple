@@ -70,6 +70,16 @@ test('hello hotwords and real offscreen draft path use scoped versioned names wh
  expect(source.sourceText).toBe('蒋万安谈蓝营');expect(source.sourceRaw).toBe('蒋万安谈蓝营');expect(source.glossaryVersion).toBe(5);expect(translated.text).toContain('Chiang Wan-an');expect(translated.text).toContain('pan-blue camp');expect(translated.text).not.toMatch(/ZXQ/i);expect(translated.glossaryVersion).toBe(5);
  await command('glossary',{glossary:{version:6,entries:[]}});expect(runtimeMessages.some(message=>message.kind==='epoch'&&message.epoch===1)).toBe(true);await command('stop');
 });
+test('observed name homophone is corrected and protected in translation with an empty user glossary',async()=>{
+ vi.stubGlobal('Translator',{availability:async()=>'available',create:async()=>({translate:async(text:string)=>text,destroy:()=>{}})});
+ await start(undefined,{glossary:{version:0,entries:[]}});sockets[0].open();
+ sockets[0].onmessage({data:JSON.stringify({type:'subtitle',phase:'final',sessionId:'session',epoch:0,segmentId:'name',revision:1,sourceText:'讲万安今天发言',sourceLanguage:'zh'})});
+ await new Promise(resolve=>setTimeout(resolve,0));
+ const source=runtimeMessages.find(message=>message.kind==='subtitle').event,translation=runtimeMessages.find(message=>message.kind==='translation').event;
+ expect(source.sourceText).toBe('蒋万安今天发言');expect(source.sourceRaw).toBe('讲万安今天发言');
+ expect(source.matchedTerms[0].entry.target).toBe('Chiang Wan-an');expect(translation.text).toContain('Chiang Wan-an');
+ await command('stop');
+});
 test('audio-only SPA navigation updates scoped terms/hotwords and cancels old translation epoch',async()=>{
  let late:(text:string)=>void=()=>{},calls=0;vi.stubGlobal('Translator',{availability:async()=>'available',create:async()=>({translate:async(text:string)=>{if(calls++===0)return new Promise<string>(resolve=>{late=resolve;});return text;},destroy:()=>{}})});
  const entries=[{id:'a',source:'蓝营',target:'pan-blue camp',sourceLang:'zh',targetLang:'en',scope:'video',videoUrl:'https://n.test/a'}];

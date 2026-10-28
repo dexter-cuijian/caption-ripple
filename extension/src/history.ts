@@ -35,10 +35,10 @@ export async function allHistory(session=''){const database=await db();return ne
 export type ExportFormat='txt'|'md'|'srt'|'vtt';
 function timestamp(seconds:number,separator:string){const ms=Math.max(0,Math.round(seconds*1000));return`${String(Math.floor(ms/3600000)).padStart(2,'0')}:${String(Math.floor(ms/60000)%60).padStart(2,'0')}:${String(Math.floor(ms/1000)%60).padStart(2,'0')}${separator}${String(ms%1000).padStart(3,'0')}`;}
 export function exportCaptions(rows:CaptionRow[],format:ExportFormat){
- if(format==='txt')return rows.map(r=>[r.sourceRaw??r.sourceText,r.translatedText].filter(Boolean).join('\n')).join('\n\n');
- if(format==='md')return'# 字幕记录\n\n'+rows.map(r=>`## ${r.title.replace(/[\r\n]/g,' ')}\n\n${r.sourceRaw??r.sourceText}\n\n${r.translatedText??''}\n\n来源：${r.url}\n`).join('\n');
+ if(format==='txt')return rows.map(r=>[r.sourceText,r.translatedText].filter(Boolean).join('\n')).join('\n\n');
+ if(format==='md')return'# 字幕记录\n\n'+rows.map(r=>`## ${r.title.replace(/[\r\n]/g,' ')}\n\n${r.sourceText}\n\n${r.translatedText??''}\n\n来源：${r.url}\n`).join('\n');
  // Media timestamps remain estimates. Multiple sessions/epochs are concatenated, never overlapping at zero.
- let offset=0,previous='',lastEnd=0;const cues=rows.map((r,index)=>{const identity=JSON.stringify([r.sessionId,r.epoch]);if(identity!==previous){offset=lastEnd;previous=identity;}const start=offset+Math.max(0,r.start),end=offset+Math.max(r.start+.01,r.end);lastEnd=Math.max(lastEnd,end);return`${format==='srt'?`${index+1}\n`:''}${timestamp(start,format==='srt'?',':'.')} --> ${timestamp(end,format==='srt'?',':'.')}\n${[r.sourceRaw??r.sourceText,r.translatedText].filter(Boolean).join('\n')}`;});
+ let offset=0,previous='',lastEnd=0;const cues=rows.map((r,index)=>{const identity=JSON.stringify([r.sessionId,r.epoch]);if(identity!==previous){offset=lastEnd;previous=identity;}const start=offset+Math.max(0,r.start),end=offset+Math.max(r.start+.01,r.end);lastEnd=Math.max(lastEnd,end);return`${format==='srt'?`${index+1}\n`:''}${timestamp(start,format==='srt'?',':'.')} --> ${timestamp(end,format==='srt'?',':'.')}\n${[r.sourceText,r.translatedText].filter(Boolean).join('\n')}`;});
  return(format==='vtt'?'WEBVTT\n\n':'')+cues.join('\n\n')+'\n';
 }
 /** Release this document's connection when its reading surface closes. */

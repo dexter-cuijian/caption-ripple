@@ -37,5 +37,8 @@ export function termsConsistent(candidate:string,matches:TermMatch[]){
 }
 export function hotwordsFor(entries:GlossaryEntry[],sourceLanguage:string,url:string){return[...new Set(entries.filter(entry=>(sourceLanguage==='auto'||entry.sourceLang===sourceLanguage)&&inScope(entry,url)&&Array.from(entry.source).length<=32).map(entry=>entry.source))].slice(0,64);}
 const taipei='https://english.gov.taipei/cp.aspx?n=9098E8D466ED59D5&s=1A2F0EABD298B76F',legislator='https://www.ly.gov.tw/Pages/List.aspx?nodeid=46775';
-/** Opt-in example data only. Never loaded into defaults or ASR without an explicit UI import. */
+/** News examples are opt-in, except the separately confirmed name used below for translation. */
 export const newsExamples:GlossaryEntry[]=[['蒋万安','Chiang Wan-an',taipei],['蔣萬安','Chiang Wan-an',taipei],['沈伯洋','Shen Pao-yang',legislator],['蓝营','pan-blue camp'],['藍營','pan-blue camp'],['绿营','pan-green camp'],['綠營','pan-green camp'],['民调','opinion poll'],['民調','opinion poll'],['误差范围','margin of error'],['誤差範圍','margin of error']].map(([source,target,reference],index)=>({id:`news-example-${index}`,source,target,sourceLang:'zh',targetLang:'en',scope:'global',...(reference?{reference}:{})}));
+/** Explicitly confirmed proper name; user entries precede and override it. */
+const builtInNames=newsExamples.filter(entry=>entry.source==='蒋万安'||entry.source==='蔣萬安');
+export const effectiveGlossaryEntries=(userEntries:GlossaryEntry[])=>[...userEntries,...builtInNames];

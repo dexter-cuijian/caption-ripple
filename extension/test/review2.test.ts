@@ -21,10 +21,25 @@ test('later context creates production proofreading revision2 for previous ident
  correction.reset('s',1);correction.observe(final('1'),'en');correction.recordDraft({...final('1'),sourceRevision:1,text:'Did not grow by 20%'} as any);correction.observe(final('2'),'en');await Promise.resolve();expect(inputs[0][0]).toContain('没有增长20%');expect(inputs[0][1]).toContain('下降3%');finish('No growth of 20%; only a decline.');await new Promise(r=>setTimeout(r,0));expect(updates[0]).toMatchObject({segmentId:'1',sourceRevision:1,translationRevision:2});
  correction.recordDraft({...final('2'),sourceRevision:1,text:'Down 3%'} as any);correction.observe({...final('3'),sourceText:'下一句'},'en');await Promise.resolve();correction.reset('s',2);finish('late');await new Promise(r=>setTimeout(r,0));expect(updates).toHaveLength(1);
 });
+test('context proofreading uses corrected source while raw ASR remains available for history',async()=>{
+ let received='';const correction=new ContextProofreader({proofread:async(source:string)=>{received=source;return 'Chiang Wan-an spoke.';}},()=>{},()=>{});
+ correction.reset('s',1);const previous={...final('name'),sourceText:'蒋万安发言',sourceRaw:'讲万安发言'};
+ correction.observe(previous,'en');correction.recordDraft({...previous,sourceRevision:1,text:'Chiang Wan-an spoke.'} as any);
+ correction.observe({...final('next'),sourceText:'下一句'},'en');await new Promise(resolve=>setTimeout(resolve,0));
+ expect(received).toBe('蒋万安发言');expect(previous.sourceRaw).toBe('讲万安发言');
+});
 test('local provider uses authenticated fixed loopback and context/negation/number preserving prompt',async()=>{
  let request:any;const provider=new LocalModelTranslationProvider(()=>'private-token',async(url:any,options:any)=>{request={url,options};return new Response(JSON.stringify({choices:[{message:{content:'Did not grow by 20%.'}}]}),{status:200});});
  expect(await provider.proofread('没有增长20%','只下降3%','Grew 20%','zh','en')).toBe('Did not grow by 20%.');
  expect(request.url).toBe('http://127.0.0.1:8081/v1/chat/completions');expect(request.options.headers.Authorization).toBe('Bearer private-token');const body=JSON.parse(request.options.body);expect(body.messages[0].content).toContain('【背景信息】');expect(body.messages[0].content).toContain('否定');expect(body.messages[0].content).toContain('20%');
+});
+test('local provider calls a browser fetch with the global receiver',async()=>{
+ const browserFetch=function(this:unknown):Promise<Response>{
+  if(this!==globalThis)throw new TypeError('Illegal invocation');
+  return Promise.resolve(new Response(JSON.stringify({choices:[{message:{content:'Context corrected.'}}]}),{status:200}));
+ } as typeof fetch;
+ const provider=new LocalModelTranslationProvider(()=>'private-token',browserFetch);
+ expect(await provider.proofread('原文','后文','Draft','zh','en')).toBe('Context corrected.');
 });
 test('media seek rejects another video on same page and live streams, permits unique stable restored media',()=>{
  const row={url:'https://news.test',videoId:'a',mediaUrl:'https://cdn.test/a.mp4',live:false,mediaTime:10};const a={id:'a',url:row.url,mediaUrl:row.mediaUrl,live:false},b={...a,id:'b',mediaUrl:'https://cdn.test/b.mp4'};

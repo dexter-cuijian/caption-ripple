@@ -10,11 +10,13 @@ function alignPunctuation(raw,output){
   let cursor=0,offset=0;const marks=[],positions=[];
   for(const char of output){
     while(cursor<raw.length&&/\s/u.test(raw[cursor])&&raw[cursor]!==char)cursor++;
+    let added=false;
     if(raw.startsWith(char,cursor))cursor+=char.length;
     else if(!inserted.test(char)||/[,.]/u.test(char)&&/\d/u.test(raw[cursor-1]??'')&&/\d/u.test(raw[cursor]??''))return null;
+    else added=true;
     offset+=char.length;
     positions.push({rawEnd:cursor,outputEnd:offset});
-    if(boundary.test(char))marks.push({rawEnd:cursor,outputEnd:offset,char});
+    if(boundary.test(char))marks.push({rawEnd:cursor,outputEnd:offset,char,added});
   }
   while(cursor<raw.length&&/\s/u.test(raw[cursor]))cursor++;
   return cursor===raw.length?{output,marks,positions}:null;
@@ -25,7 +27,7 @@ export class StablePunctuation {
   constructor(punctuate,{stableMs=500,intervalMs=500,minTailChars=6,minClauseChars=10,minClauseWords=4,maxInputChars=512,contextChars=120,maxPunctuationMs=150,allowCommit=true,clock=()=>performance.now()}={}){
     Object.assign(this,{punctuate,stableMs,intervalMs,minTailChars,minClauseChars,minClauseWords,maxInputChars,contextChars,maxPunctuationMs,allowCommit,clock});this.reset();
   }
-  reset(){this.committed='';this.observations=[];this.lastPunctAt=-Infinity;this.pendingStart=false;this.punctuationCode=null;this.punctuationMs=0;}
+  reset(){this.committed='';this.observations=[];this.lastPunctAt=-Infinity;this.pendingStart=false;this.punctuationCode=null;this.punctuationMs=0;this.interimMarks=[];}
   update(raw,{audioMs=0,final=false}={}){
     raw=String(raw??'');
     if(!raw.startsWith(this.committed)){const error=new Error('Committed source prefix changed; reset capture or switch ASR profile');error.code='source_prefix_conflict';throw error;}
@@ -46,6 +48,7 @@ export class StablePunctuation {
       this.punctuationMs=this.clock()-start;
       if(this.punctuationMs>this.maxPunctuationMs)this.punctuationCode='punctuation_timeout';
       else if(!aligned)this.punctuationCode??='punctuation_changed_source';
+      if(this.punctuationCode)this.interimMarks=[];
       else{
         this.punctuationCode=null;
         const contextOffset=this.committed.length-context.length;
@@ -58,6 +61,7 @@ export class StablePunctuation {
             clauseSize(clause)>=(han.test(clause)?this.minClauseChars:this.minClauseWords)&&
             !(mark.char==='.'&&/\d/u.test(input[mark.rawEnd-1]??'')&&/\d/u.test(input[mark.rawEnd]??''));
         });
+        if(!final)this.interimMarks=aligned.marks.filter(mark=>mark.added&&mark.rawEnd<input.length).map(mark=>({end:contextOffset+mark.rawEnd,char:mark.char,prefix:raw.slice(0,contextOffset+mark.rawEnd)}));
         if(!final&&this.allowCommit&&eligible.length){
           const mark=eligible[0],end=contextOffset+mark.rawEnd;
           const contextOutputEnd=context?Math.max(0,...aligned.positions.filter(point=>point.rawEnd<=context.length).map(point=>point.outputEnd)):0;
@@ -73,6 +77,10 @@ export class StablePunctuation {
           const safe=alignPunctuation(remaining,output);if(safe)base.text=safe.output.trim();
         }else if(final)this.punctuationCode='punctuation_backlog';
       }
+    }
+    if(!final&&this.interimMarks.length){
+      const marks=this.interimMarks.filter(mark=>mark.end>this.committed.length&&mark.end<=stable&&raw.startsWith(mark.prefix)&&Array.from(raw.slice(mark.end).trim()).length>=2);
+      if(marks.length){let cursor=this.committed.length,display='';for(const mark of marks){display+=raw.slice(cursor,mark.end)+mark.char;cursor=mark.end;}base.text=(display+raw.slice(cursor)).trim();}
     }
     const result={...base,final,splitReason:final?'silence':null,punctuationCode:this.punctuationCode,punctuationMs:this.punctuationMs};
     if(final)this.reset();return result;
