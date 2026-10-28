@@ -34,7 +34,7 @@ export class Session {
         this.ready=true;
         this.emit(reset?{type:'reset',sessionId:this.id,epoch}:{type:'ready',sessionId:this.id,epoch,engine:this.engine,sampleRate:16000});
         this.pump();
-      }else if(message.type==='error')this.fail('asr_unavailable',message.message);
+      }else if(message.type==='error')this.fail(message.code==='source_prefix_conflict'?'source_prefix_conflict':'asr_unavailable',message.message);
       else if(message.type==='decoded')this.decoded(message);
     };
     const onError=error=>{if(current())this.fail('asr_unavailable',error.message);};
@@ -81,6 +81,10 @@ export class Session {
       this.segmentStart=meta.sampleStart/16000;
       this.segmentMediaTime=meta.mediaTime===null?null:meta.mediaTime-samples.length/16000*meta.playbackRate;
     }
+    if(result.logicalStarted&&!result.speechStarted){
+      this.speechStartAt=null;this.segmentStart=meta.sampleStart/16000;
+      this.segmentMediaTime=meta.mediaTime===null?null:meta.mediaTime-samples.length/16000*meta.playbackRate;
+    }
     const decodedText=String(result.text??'').trim();
     const text=decodedText||(result.final?this.lastText:'');
     if(text&&(text!==this.lastText||result.final)){
@@ -91,6 +95,7 @@ export class Session {
       const mediaTime=this.segmentStart===null?(meta.mediaTime===null?null:meta.mediaTime-samples.length/16000*meta.playbackRate):this.segmentMediaTime;
       const event={type:'subtitle',sessionId:this.id,epoch:this.epoch,segmentId:String(this.segment),revision:this.revision,phase:result.final?'final':'interim',sourceText:text,sourceLanguage:this.language,start,end,mediaTime,createdAt:Date.now(),engine:this.engine,speechStartAt:this.speechStartAt,audioEndAt:meta.capturedAt,timestampKind:'capture-estimate',metrics:{decodeMs:result.decodeMs??0,queueMs:packet.queueMs,serverReceivedAt:packet.receivedAt}};
       if(result.splitReason)event.splitReason=result.splitReason;
+      if(typeof result.rawSourceText==='string')event.rawSourceText=result.rawSourceText;
       this.emit(event);this.lastText=text;
       const key=`${this.epoch}:${this.segment}:${this.revision}`;
       this.renderedRows.set(key,event);
@@ -99,7 +104,7 @@ export class Session {
     }
     if(result.final){this.segment++;this.revision=0;this.lastText='';this.segmentStart=null;this.speechStartAt=null;}
     if(result.maintenance)this.emit({type:'status',level:'info',code:'decoder_maintenance',message:'Decoder reset at a silence boundary',sessionId:this.id,epoch:this.epoch});
-    this.log({type:'decode',sessionId:this.id,epoch:this.epoch,seq:meta.seq,capturedAt:meta.capturedAt,receivedAt:packet.receivedAt,decodeMs:result.decodeMs,queueMs:packet.queueMs,rms:result.rms,normalizedRms:result.normalizedRms,agcGain:result.agcGain,voiced:result.voiced});
+    this.log({type:'decode',sessionId:this.id,epoch:this.epoch,seq:meta.seq,capturedAt:meta.capturedAt,receivedAt:packet.receivedAt,decodeMs:result.decodeMs,queueMs:packet.queueMs,rms:result.rms,normalizedRms:result.normalizedRms,agcGain:result.agcGain,punctuationMs:result.punctuationMs,punctuationCode:result.punctuationCode,voiced:result.voiced});
     this.pump();
   }
   rendered(message){

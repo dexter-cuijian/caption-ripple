@@ -2,7 +2,8 @@ import {CausalAgc} from './agc.mjs';
 
 /** Native recognition state lives exclusively in the native subprocess. */
 export class CaptionDecoder {
-  constructor(recognizer, {silenceSamples=8000, threshold=.008, maintenanceSamples=16000*7200,maxSegmentSeconds=Infinity,maxTextLength=Infinity,maxLatinTextLength=Infinity,tailPaddingSamples=6400,agc=false}={}) {
+  constructor(recognizer, {silenceSamples=8000, threshold=.008, maintenanceSamples=16000*7200,maxSegmentSeconds=Infinity,maxTextLength=Infinity,maxLatinTextLength=Infinity,tailPaddingSamples=6400,agc=false,logicalProducer=null}={}) {
+    this.logicalProducer=logicalProducer;
     this.agc=agc?new CausalAgc(agc===true?{}:agc):null;
     this.recognizer=recognizer;this.stream=recognizer.createStream();
     this.silenceSamples=silenceSamples;this.threshold=threshold;this.maintenanceSamples=maintenanceSamples;
@@ -38,7 +39,9 @@ export class CaptionDecoder {
     }
     const maintenance=this.totalSamples>=this.maintenanceSamples&&!this.active;
     if(maintenance){this.recognizer.reset(this.stream);this.totalSamples=0;}
-    return {text,final,splitReason,speechStarted,voiced,rms,normalizedRms,agcGain:this.agc?.gain??1,maintenance,decodeMs:performance.now()-started};
+    this.lastNativeText=text;
+    const logical=this.logicalProducer?this.logicalProducer.update(text,{audioMs:this.totalSamples/16,final}):{};
+    return {text,final,splitReason,...logical,speechStarted,voiced,rms,normalizedRms,agcGain:this.agc?.gain??1,maintenance,decodeMs:performance.now()-started};
   }
   resetStream(){
     const previous=this.stream;
@@ -47,6 +50,6 @@ export class CaptionDecoder {
     previous.free?.();
     this.active=false;this.silentSamples=0;this.segmentSamples=0;
   }
-  reset(){this.resetStream();this.totalSamples=0;this.agc?.reset();}
+  reset(){this.resetStream();this.totalSamples=0;this.agc?.reset();this.logicalProducer?.reset();}
   close(){this.stream.free?.();this.recognizer.free?.();}
 }

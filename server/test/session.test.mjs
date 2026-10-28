@@ -164,3 +164,12 @@ test('bounded native split forwards reason, finals monotone segment IDs with raw
  assert.deepEqual(rows.map(e=>[e.segmentId,e.phase,e.splitReason,e.sourceText]),[['0','final','duration','啊 原文'],['1','final','length','啊 原文']]);
  assert.equal(session.history.length,2);session.close();
 });
+
+test('prefix conflict stops epoch visibly; logical clauses do not invent new speech onset',()=>{
+ const {session,events,workers}=setup();
+ session.clock(clock());session.audio(Buffer.alloc(3200));workers[0].emit('message',{type:'decoded',text:'第一句。',rawSourceText:'第一句',final:true,splitReason:'punctuation',speechStarted:true});
+ session.clock(clock(1));session.audio(Buffer.alloc(3200));workers[0].emit('message',{type:'decoded',text:'第二句尚未结束',rawSourceText:'第二句尚未结束',logicalStarted:true,final:false,speechStarted:false});
+ assert.equal(events.filter(e=>e.type==='subtitle').at(-1).speechStartAt,null);
+ workers[0].emit('message',{type:'error',code:'source_prefix_conflict',message:'Committed source prefix changed; reset capture or switch ASR profile'});
+ assert.equal(events.at(-1).code,'source_prefix_conflict');assert.equal(session.paused,true);assert.equal(workers[0].terminated,true);session.close();
+});

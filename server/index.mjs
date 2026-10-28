@@ -59,7 +59,7 @@ export function createServer({modelDir,runtimeDir=join(projectRoot,'.runtime'),w
       if(ws.readyState!==WebSocket.OPEN)return;
       if(ws.bufferedAmount>1024*1024){ws.close(4408,'Client backpressure limit');session?.close();return;}
       if(event.type==='ready'||event.type==='reset')lastError=null;
-      if(event.code==='asr_unavailable'||event.code==='asr_exited'){lastError=event.message;}
+      if(event.code==='asr_unavailable'||event.code==='asr_exited'||event.code==='source_prefix_conflict'){lastError=event.message;}
       ws.send(JSON.stringify(event));
     };
     const timer=setTimeout(()=>ws.close(4401,'Hello authentication deadline exceeded'),helloTimeoutMs);timer.unref();
