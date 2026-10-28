@@ -78,3 +78,43 @@ test('authentication requires literal Bearer scheme and hello deadline',async t=
  assert.equal((await fetch(f.url+'/capabilities',{headers:{Authorization:f.token}})).status,401);
  const ws=new WebSocket(f.ws);await once(ws,'open');const [code]=await once(ws,'close');assert.equal(code,4401);
 });
+
+async function connect(f,id){
+ const ws=new WebSocket(f.ws);await once(ws,'open');const event=first(ws);ws.send(JSON.stringify({...hello(f.token),sessionId:id}));await event;return ws;
+}
+
+test('paused or failed session cannot reset while another session owns decoder',async t=>{
+ const workers=[];
+ const f=await fixture(t,{workerFactory:()=>{const worker=new WorkerStub();workers.push(worker);return worker;}});
+ const a=await connect(f,'a');
+ let event=first(a);a.send(JSON.stringify({type:'pause',sessionId:'a',epoch:0}));await event;
+ const b=await connect(f,'b');assert.equal(workers.length,2);
+ event=first(a);a.send(JSON.stringify({type:'reset',sessionId:'a',epoch:1,mediaTime:0}));
+ const rejected=await event;assert.equal(rejected.code,'decoder_busy');assert.equal(workers.length,2);assert.equal(workers[1].terminated,undefined);
+ event=first(b);b.send(JSON.stringify({type:'pause',sessionId:'b',epoch:0}));await event;
+ event=first(a);a.send(JSON.stringify({type:'reset',sessionId:'a',epoch:1,mediaTime:0}));assert.equal((await event).type,'reset');assert.equal(workers.length,3);
+ // A native error must also release ownership before B can resume.
+ event=first(a);workers[2].emit('message',{type:'error',message:'native failure'});assert.equal((await event).code,'asr_unavailable');
+ event=first(b);b.send(JSON.stringify({type:'reset',sessionId:'b',epoch:1,mediaTime:0}));assert.equal((await event).type,'reset');
+ event=first(a);a.send(JSON.stringify({type:'reset',sessionId:'a',epoch:2,mediaTime:0}));assert.equal((await event).code,'decoder_busy');assert.equal(workers.length,4);
+ a.close();b.close();await Promise.all([once(a,'close'),once(b,'close')]);
+});
+
+test('health readiness follows pause, reset, disconnect and overload worker lifecycle',async t=>{
+ const workers=[];
+ class SlowWorker extends WorkerStub{postMessage() {}}
+ const f=await fixture(t,{workerFactory:()=>{const worker=new SlowWorker();workers.push(worker);return worker;}});
+ const health=async()=>(await fetch(f.url+'/health')).json();
+ assert.equal((await health()).ready,false);
+ const ws=await connect(f,'s');assert.equal((await health()).ready,true);
+ let event=first(ws);ws.send(JSON.stringify({type:'pause',sessionId:'s',epoch:0}));await event;
+ assert.equal((await health()).ready,false);assert.equal((await health()).modelState,'cold');
+ event=first(ws);ws.send(JSON.stringify({type:'reset',sessionId:'s',epoch:1,mediaTime:0}));await event;assert.equal((await health()).ready,true);
+ event=first(ws);
+ for(let i=0;i<22;i++){
+  ws.send(JSON.stringify({type:'clock',sessionId:'s',epoch:1,seq:i,sampleStart:i*1600,capturedAt:Date.now(),mediaTime:0,playbackRate:1,paused:false}));ws.send(Buffer.alloc(3200));
+ }
+ assert.equal((await event).code,'audio_overload');assert.equal((await health()).ready,false);
+ event=first(ws);ws.send(JSON.stringify({type:'reset',sessionId:'s',epoch:2,mediaTime:0}));await event;assert.equal((await health()).ready,true);
+ ws.close();await once(ws,'close');assert.equal((await health()).ready,false);assert.equal((await health()).modelState,'cold');
+});

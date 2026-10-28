@@ -22,7 +22,12 @@ export function createServer({modelDir=join(projectRoot,'.models','paraformer'),
   const token=readFileSync(tokenPath,'utf8').trim();
   if(!/^[A-Za-z0-9_-]{43,}$/.test(token))throw new Error('Invalid pairing token file; remove it to generate a new token');
   const diagnostics=new Diagnostics(runtimeDir),sessions=new Set(),clients=new Set();
-  let modelState='cold',lastError=null;
+  let decoderOwner=null,lastError=null;
+  const acquireDecoder=session=>{
+    if(decoderOwner&&decoderOwner!==session){const error=new Error('One native decoder session at a time');error.code='decoder_busy';throw error;}
+    decoderOwner=session;lastError=null;
+  };
+  const releaseDecoder=session=>{if(decoderOwner===session)decoderOwner=null;};
   const modelsPresent=()=>['encoder.int8.onnx','decoder.int8.onnx','tokens.txt'].every(name=>existsSync(join(modelDir,name)));
   const server=http.createServer((request,response)=>{
     if(!loopback(request.socket.remoteAddress)||!validHost(request.headers.host)||!validOrigin(request.headers.origin))return json(response,403,{error:'Forbidden host or origin'});
@@ -31,6 +36,7 @@ export function createServer({modelDir=join(projectRoot,'.models','paraformer'),
     if(request.method==='OPTIONS'){response.writeHead(204);return response.end();}
     if(request.method!=='GET')return json(response,405,{error:'Method not allowed'});
     const path=new URL(request.url,'http://localhost').pathname;
+    const modelState=decoderOwner?(decoderOwner.ready?'ready':'loading'):(lastError?'error':'cold');
     if(path==='/health')return json(response,200,{status:modelState==='error'?'error':modelState==='loading'?'loading':'ok',ready:modelState==='ready',asr:ENGINE,translation:'disabled',protocolVersion:1,modelState,modelsPresent:modelsPresent(),error:lastError});
     if(!sameToken(request.headers.authorization?.startsWith('Bearer ')?request.headers.authorization.slice(7):undefined,token))return json(response,401,{error:'Bearer pairing token required'});
     if(path==='/capabilities')return json(response,200,{protocolVersion:1,languages:['auto','zh','en'],models:[{id:'paraformer',engine:ENGINE,streaming:true,wordTimestamps:false,hotwords:false,installed:modelsPresent()}],sampleRate:16000,maxChunkSamples:1600,translation:false,visual:false,timestampKind:'capture-estimate'});
@@ -50,8 +56,8 @@ export function createServer({modelDir=join(projectRoot,'.models','paraformer'),
     const send=event=>{
       if(ws.readyState!==WebSocket.OPEN)return;
       if(ws.bufferedAmount>1024*1024){ws.close(4408,'Client backpressure limit');session?.close();return;}
-      if(event.type==='ready'||event.type==='reset'){modelState='ready';lastError=null;}
-      if(event.code==='asr_unavailable'||event.code==='asr_exited'){modelState='error';lastError=event.message;}
+      if(event.type==='ready'||event.type==='reset')lastError=null;
+      if(event.code==='asr_unavailable'||event.code==='asr_exited'){lastError=event.message;}
       ws.send(JSON.stringify(event));
     };
     const timer=setTimeout(()=>ws.close(4401,'Hello authentication deadline exceeded'),helloTimeoutMs);timer.unref();
@@ -64,9 +70,8 @@ export function createServer({modelDir=join(projectRoot,'.models','paraformer'),
           if(!sameToken(message.token,token))return ws.close(4401,'Invalid pairing token');
           if(typeof message.sessionId!=='string'||!message.sessionId||message.sessionId.length>128||!Number.isSafeInteger(message.epoch)||message.epoch<0||!['auto','zh','en'].includes(message.sourceLanguage??'auto'))return ws.close(4400,'Invalid hello fields');
           clearTimeout(timer);
-          if([...sessions].some(s=>!s.closed&&!s.paused))return ws.close(4429,'One native decoder session at a time');
-          modelState='loading';
-          session=new Session(message,send,workerFactory,event=>diagnostics.log(event),{modelDir});sessions.add(session);
+          if(decoderOwner)return ws.close(4429,'One native decoder session at a time');
+          session=new Session(message,send,workerFactory,event=>diagnostics.log(event),{modelDir,acquireDecoder,releaseDecoder});sessions.add(session);
           return;
         }
         if(isBinary){session.audio(data);return;}
@@ -81,7 +86,7 @@ export function createServer({modelDir=join(projectRoot,'.models','paraformer'),
           case 'rendered':session.rendered(message);break;
           default:throw new Error('Unknown control message');
         }
-      }catch(error){send({type:'status',level:'error',code:'invalid_message',message:error.message,sessionId:session?.id,epoch:session?.epoch});}
+      }catch(error){send({type:'status',level:'error',code:error.code==='decoder_busy'?'decoder_busy':'invalid_message',message:error.message,sessionId:session?.id,epoch:session?.epoch});}
     });
     ws.on('close',()=>{
       clearTimeout(timer);clients.delete(ws);session?.close();

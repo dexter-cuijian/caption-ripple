@@ -15,7 +15,11 @@ export class Session {
     this.startWorker(false);
   }
   startWorker(reset){
-    const worker=this.workerFactory(this.options);this.worker=worker;
+    this.options.acquireDecoder?.(this);
+    let worker;
+    try{worker=this.workerFactory({modelDir:this.options.modelDir});}
+    catch(error){this.options.releaseDecoder?.(this);throw error;}
+    this.worker=worker;
     const epoch=this.epoch;
     const current=()=>!this.closed&&!this.paused&&epoch===this.epoch&&this.worker===worker;
     worker.on('message',message=>{
@@ -32,7 +36,7 @@ export class Session {
   }
   emit(event){this.send(event);this.log(event);}
   status(code,message,level='error'){this.emit({type:'status',sessionId:this.id,epoch:this.epoch,level,code,message});}
-  fail(code,message){this.paused=true;this.ready=false;this.queue=[];this.pending=null;this.clockPacket=null;this.worker?.terminate();this.status(code,message);}
+  fail(code,message){this.paused=true;this.ready=false;this.queue=[];this.pending=null;this.clockPacket=null;this.worker?.terminate();this.options.releaseDecoder?.(this);this.status(code,message);}
   clock(packet){
     if(this.closed||this.paused)return;
     if(packet.sessionId!==this.id||packet.epoch!==this.epoch)throw new Error('Stale session/epoch clock');
@@ -68,7 +72,8 @@ export class Session {
       this.segmentStart=meta.sampleStart/16000;
       this.segmentMediaTime=meta.mediaTime===null?null:meta.mediaTime-samples.length/16000*meta.playbackRate;
     }
-    const text=String(result.text??'').trim();
+    const decodedText=String(result.text??'').trim();
+    const text=decodedText||(result.final?this.lastText:'');
     if(text&&(text!==this.lastText||result.final)){
       this.revision++;
       const start=this.segmentStart??meta.sampleStart/16000;
@@ -99,11 +104,12 @@ export class Session {
   }
   reset(message){
     if(!Number.isSafeInteger(message.epoch)||message.epoch<=this.epoch)throw new Error('Reset requires a newer epoch');
+    this.options.acquireDecoder?.(this);
     this.worker?.terminate();this.epoch=message.epoch;this.queue=[];this.pending=null;this.clockPacket=null;
     this.nextSeq=0;this.nextSample=0;this.segment=0;this.revision=0;this.lastText='';this.speechStartAt=null;this.segmentStart=null;this.segmentMediaTime=null;
     this.language=message.sourceLanguage??this.language;
     this.paused=false;this.ready=false;this.renderedRows.clear();this.firstRenders.clear();this.startWorker(true);
   }
-  pause(){this.paused=true;this.queue=[];this.pending=null;this.clockPacket=null;this.worker?.terminate();this.status('paused','Capture paused; resume with a newer epoch','info');}
-  close(){if(this.closed)return;this.closed=true;this.queue=[];this.pending=null;this.clockPacket=null;this.worker?.terminate();}
+  pause(){this.paused=true;this.ready=false;this.queue=[];this.pending=null;this.clockPacket=null;this.worker?.terminate();this.options.releaseDecoder?.(this);this.status('paused','Capture paused; resume with a newer epoch','info');}
+  close(){if(this.closed)return;this.closed=true;this.ready=false;this.queue=[];this.pending=null;this.clockPacket=null;this.worker?.terminate();this.options.releaseDecoder?.(this);}
 }

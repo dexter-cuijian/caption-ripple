@@ -123,3 +123,14 @@ test('render diagnostics identify first source render once per utterance',()=>{
   assert.equal(rendered[0].firstSourceRender,true);assert.equal(rendered[0].onsetToRenderMs,200);
   assert.equal(rendered[1].firstSourceRender,false);session.close();
 });
+
+test('blank final preserves last recognized interim exactly once in final history',()=>{
+  const {session,events,workers}=setup();
+  session.clock(clock());session.audio(Buffer.alloc(3200));workers[0].complete('保留识别结果');
+  session.clock(clock(1));session.audio(Buffer.alloc(3200));workers[0].complete('',true);
+  const subtitles=events.filter(e=>e.type==='subtitle');
+  assert.deepEqual(subtitles.map(e=>[e.segmentId,e.revision,e.phase,e.sourceText]),[['0',1,'interim','保留识别结果'],['0',2,'final','保留识别结果']]);
+  assert.equal(session.history.length,1);assert.equal(session.history[0].sourceText,'保留识别结果');
+  session.clock(clock(2));session.audio(Buffer.alloc(3200));workers[0].complete('',true);
+  assert.equal(session.history.length,1);session.close();
+});
