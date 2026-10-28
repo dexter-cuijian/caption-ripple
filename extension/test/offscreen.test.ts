@@ -1,6 +1,7 @@
 import {beforeEach,expect,test,vi} from 'vitest';
 import {EventEmitter}from'node:events';
 import {Session}from'../../server/session.mjs';
+let runtimeMessages:any[]=[],translateFinish:((value:any)=>void)|undefined;
 let listener:any,failModule=false,contexts:any[],tracks:any[],sockets:any[],nodes:any[];
 class FakeSocket {
  static OPEN=1;readyState=0;bufferedAmount=0;sent:any[]=[];onopen:any;onmessage:any;onclose:any;onerror:any;
@@ -13,8 +14,8 @@ async function command(kind:string,extra:any={}){return new Promise<any>(resolve
 async function start(video?:any){return command('start',{streamId:'capture',sessionId:'session',token:'secret',config:{},video});}
 function packet(){[...nodes].reverse().find(n=>n.port.onmessage)?.port.onmessage({data:{pcm:new Int16Array(1600).buffer,rms:.1,contextTime:1}});}
 beforeEach(async()=>{
- vi.resetModules();failModule=false;contexts=[];tracks=[];sockets=[];nodes=[];
- vi.stubGlobal('chrome',{runtime:{onMessage:{addListener:(fn:any)=>listener=fn},sendMessage:async()=>({}),getURL:(s:string)=>s}});
+ vi.resetModules();runtimeMessages=[];translateFinish=undefined;failModule=false;contexts=[];tracks=[];sockets=[];nodes=[];
+ vi.stubGlobal('chrome',{runtime:{onMessage:{addListener:(fn:any)=>listener=fn},sendMessage:async(message:any)=>{runtimeMessages.push(message);if(message.kind==='panel-translate')return new Promise(resolve=>{translateFinish=resolve;});return{};},getURL:(s:string)=>s}});
  vi.stubGlobal('navigator',{mediaDevices:{getUserMedia:async()=>{const track={stop:vi.fn(),onended:null};tracks.push(track);return{getTracks:()=>[track],getAudioTracks:()=>[track]};}}});
  vi.stubGlobal('AudioContext',FakeContext);vi.stubGlobal('AudioWorkletNode',FakeNode);vi.stubGlobal('WebSocket',FakeSocket);
  await import('../src/offscreen');
@@ -48,4 +49,14 @@ test('removing the last paused video clears paused gate and resumes audio-only p
  sockets[0].onmessage({data:JSON.stringify({type:'reset',sessionId:'session',epoch:1})});packet();
  const clock=JSON.parse(sockets[0].sent[2]);expect(clock.mediaTime).toBeNull();expect(clock.paused).toBe(false);expect(clock.epoch).toBe(1);
  await command('stop');
+});
+
+test('late final translation persists but never pairs with a newer interim in live sidebar state',async()=>{
+ await start();sockets[0].open();
+ sockets[0].onmessage({data:JSON.stringify({type:'subtitle',phase:'final',sessionId:'session',epoch:0,segmentId:'1',revision:1,sourceText:'旧段文字',sourceLanguage:'zh'})});
+ await new Promise(resolve=>setTimeout(resolve,0));expect(translateFinish).toBeDefined();
+ sockets[0].onmessage({data:JSON.stringify({type:'subtitle',phase:'interim',sessionId:'session',epoch:0,segmentId:'2',revision:1,sourceText:'新段文字',sourceLanguage:'zh'})});
+ translateFinish!({ok:true,text:'Old translation'});await new Promise(resolve=>setTimeout(resolve,0));
+ expect(runtimeMessages.some(message=>message.kind==='translation'&&message.event.text==='Old translation')).toBe(true);
+ expect(runtimeMessages.filter(message=>message.kind==='state').at(-1).state.latestTranslation).toBe('');await command('stop');
 });

@@ -1,0 +1,69 @@
+import{subtitlePage}from'./display';
+import React,{useEffect,useRef,useState}from'react';
+import{createRoot}from'react-dom/client';
+import{defaults,initialState,send,type Config,type State}from'./shared';
+import{queryHistory,allHistory,exportCaptions,closeHistory,type CaptionRow,type ExportFormat}from'./history';
+import{translatorAPI,type NativeTranslator}from'./translation';
+import'./sidepanel.css';
+function SidePanel(){
+ const[state,setState]=useState<State>(initialState),[config,setConfig]=useState<Config>(defaults),[token,setToken]=useState(''),[error,setError]=useState(''),[busy,setBusy]=useState(false),[settings,setSettings]=useState(false);
+ const[tab,setTab]=useState<chrome.tabs.Tab>(),[rows,setRows]=useState<CaptionRow[]>([]),[total,setTotal]=useState(0),[sessions,setSessions]=useState<Array<{id:string;title:string}>>([]),[search,setSearch]=useState(''),[session,setSession]=useState(''),[page,setPage]=useState(0);
+ const[translation,setTranslation]=useState('尚未准备本地翻译'),[progress,setProgress]=useState<number>(),[preparing,setPreparing]=useState(false),[availability,setAvailability]=useState('checking'),[revision,setRevision]=useState(0);
+ const port=useRef<chrome.runtime.Port|null>(null),native=useRef<NativeTranslator|null>(null),pair=useRef(''),jobs=useRef(new Map<string,AbortController>()),requestVersion=useRef(0),prepareVersion=useRef(0);
+ useEffect(()=>{
+ void chrome.storage.sync.get(defaults).then(value=>setConfig(value as Config));void chrome.storage.local.get('token').then(value=>setToken(typeof value.token==='string'?value.token:''));
+ const connection=chrome.runtime.connect({name:'captions-panel'});port.current=connection;
+ connection.onMessage.addListener(message=>{
+  if(message.kind==='cancel-translation'){jobs.current.get(message.id)?.abort();jobs.current.delete(message.id);}
+  if(message.kind==='translate'){
+   const controller=new AbortController();jobs.current.set(message.id,controller);
+   (async()=>{if(!native.current||pair.current!==`${message.sourceLanguage}:${message.targetLanguage}`)throw new Error('此语言对尚未准备');return await native.current.translate(message.text,{signal:controller.signal});})()
+   .then(text=>{if(!controller.signal.aborted)connection.postMessage({kind:'translation-result',id:message.id,ok:true,text});},error=>{if(!controller.signal.aborted)connection.postMessage({kind:'translation-result',id:message.id,ok:false,error:String(error)});}).finally(()=>jobs.current.delete(message.id));
+  }
+ });
+ const poll=()=>{void send('background','get-state').then(value=>setState(value)).catch(e=>setError(String(e)));void chrome.tabs.query({active:true,currentWindow:true}).then(([value])=>setTab(value));setRevision(value=>value+1);};poll();const timer=setInterval(poll,1000);
+ return()=>{prepareVersion.current++;clearInterval(timer);void closeHistory();jobs.current.forEach(controller=>controller.abort());native.current?.destroy();connection.disconnect();};
+ },[]);
+ useEffect(()=>{const version=++requestVersion.current;void queryHistory({search,session,page}).then(result=>{if(version!==requestVersion.current)return;setRows(result.rows);setTotal(result.total);setSessions(result.sessions);}).catch(e=>setError(`历史读取失败：${String(e)}`));},[search,session,page,revision]);
+ useEffect(()=>{const api=translatorAPI();if(!api){setAvailability('API unavailable');return;}const sourceLanguage=config.sourceLanguage==='auto'?(config.targetLanguage==='zh'?'en':'zh'):config.sourceLanguage;let current=true;void api.availability({sourceLanguage,targetLanguage:config.targetLanguage}).then(value=>{if(current)setAvailability(value);},error=>{if(current)setAvailability(String(error));});return()=>{current=false;};},[config.sourceLanguage,config.targetLanguage]);
+ const change=(key:keyof Config,value:unknown)=>{const next={...config,[key]:value};setConfig(next);void chrome.storage.sync.set(next).catch(e=>setError(String(e)));if(['sourceLanguage','targetLanguage','translationEngine'].includes(key)){prepareVersion.current++;native.current?.destroy();native.current=null;pair.current='';setTranslation('语言设置已更改，请重新准备本地翻译');port.current?.postMessage({kind:'translation-ready',sourceLanguage:'',targetLanguage:''});}};
+ async function command(kind:string){setBusy(true);setError('');try{if(kind==='start'){await chrome.storage.local.set({token:token.trim()});await chrome.storage.sync.set(config);}const result=await send('background',kind,{tabId:tab?.id});if(result.error)throw new Error(result.error);setState(result);}catch(e){setError(String(e));}finally{setBusy(false);}}
+ function prepare(){
+ const api=translatorAPI();if(!api){setTranslation('当前 Chrome 没有 Translator API；需要支持内置翻译的桌面 Chrome。原文识别不受影响。');return;}
+ const sourceLanguage=config.sourceLanguage==='auto'?(config.targetLanguage==='zh'?'en':'zh'):config.sourceLanguage,targetLanguage=config.targetLanguage;
+ if(sourceLanguage===targetLanguage){setTranslation('源语言和目标语言相同，无需翻译');return;}
+ const generation=++prepareVersion.current;setPreparing(true);setProgress(undefined);setTranslation('正在准备 Chrome 本地语言模型…');
+ // create is called synchronously in this explicit click handler, before any asynchronous hop.
+ const creation=api.create({sourceLanguage,targetLanguage,monitor:monitor=>monitor.addEventListener('downloadprogress',(event:any)=>{setProgress(event.loaded);setTranslation(`下载本地语言模型 ${Math.round(event.loaded*100)}%`);})});
+ void creation.then(async instance=>{
+  if(generation!==prepareVersion.current){instance.destroy();return;}
+  native.current?.destroy();native.current=instance;pair.current=`${sourceLanguage}:${targetLanguage}`;
+  port.current?.postMessage({kind:'translation-ready',sourceLanguage,targetLanguage});
+  const result=await send('background','prepare-translation',{sourceLanguage,targetLanguage});
+  if(generation!==prepareVersion.current)return;
+  if(result.ok){setTranslation('本地翻译已就绪 · 后台可持续运行，关闭侧栏仍可翻译');}
+  else setTranslation(`本地翻译在侧栏就绪 · 请保持侧栏打开；后台不可用：${result.error}`);
+  await send('background','retry-translation');
+ }).catch(e=>{if(generation===prepareVersion.current)setTranslation(`本地翻译准备失败：${String(e)}`);}).finally(()=>{setPreparing(false);setProgress(undefined);});
+ }
+ async function download(format:ExportFormat){try{const data=exportCaptions(await allHistory(session),format);const url=URL.createObjectURL(new Blob([data],{type:'text/plain;charset=utf-8'}));const a=document.createElement('a');a.href=url;a.download=`captions-${new Date().toISOString().slice(0,10)}.${format}`;a.click();setTimeout(()=>URL.revokeObjectURL(url),10000);}catch(e){setError(String(e));}}
+ async function seek(row:CaptionRow){const result=await send('background','seek',{row});if(result.error)setError(result.error);}
+ const active=state.phase!=='idle'&&state.phase!=='error';
+ return <main><header><div className="brand"><span aria-hidden="true" className="brand-mark">≋</span><h1>字幕与历史</h1></div><button className="quiet" onClick={()=>setSettings(value=>!value)} aria-expanded={settings}>{settings?'收起设置':'设置'}</button></header>
+ <section className="capture"><p className="scope" title={tab?.url}>{tab?.title||'切换到要识别的网页'}</p><div className="controls"><button className="primary" disabled={busy||!tab?.id} onClick={()=>void command('start')}>{busy?'处理中…':active?'重新开始当前页':'开始当前页'}</button><button disabled={busy||state.phase==='idle'} onClick={()=>void command('stop')}>停止</button></div><p className="status" role="status">{state.phase} · {state.message}</p>{error&&<p role="alert" className="error">{error}</p>}</section>
+ {settings&&<section className="settings"><h2>字幕设置</h2><label>配对令牌<input type="password" autoComplete="off" value={token} onChange={event=>setToken(event.target.value)} onBlur={()=>{void chrome.storage.local.set({token:token.trim()});}} placeholder="粘贴本机 .runtime/token"/></label><p className="muted">令牌只保存在本机，不会同步。</p><label>本地识别服务<input value={config.wsUrl} onChange={event=>change('wsUrl',event.target.value)}/></label>
+ <div className="field-row"><label>原文语言<select value={config.sourceLanguage} onChange={event=>change('sourceLanguage',event.target.value)}><option value="auto">自动中英</option><option value="zh">中文</option><option value="en">English</option></select></label><label>翻译为<select value={config.targetLanguage} onChange={event=>change('targetLanguage',event.target.value)}><option value="en">English</option><option value="zh">中文</option></select></label></div>
+ <label>翻译引擎<select value={config.translationEngine} onChange={event=>change('translationEngine',event.target.value)}><option value="chrome">Chrome 本地翻译</option><option value="off">关闭翻译</option></select></label>
+ <div className="field-row"><label>译文字号<input type="number" min="16" max="72" value={config.fontSize} onChange={event=>change('fontSize',Math.max(16,Math.min(72,Number(event.target.value))))}/></label><label>字幕位置<select value={config.position} onChange={event=>change('position',event.target.value)}><option value="bottom">视频下方</option><option value="top">视频上方</option></select></label></div><label>背景不透明度 {Math.round(config.opacity*100)}%<input type="range" min="0" max="1" step=".02" value={config.opacity} onChange={event=>change('opacity',Number(event.target.value))}/></label>
+ <button onClick={()=>{void chrome.permissions.request({origins:['http://*/*','https://*/*']}).then(ok=>setError(ok?'跨域视频已授权，请重新开始当前页':'跨域权限未授权，使用主页面或视口字幕'));}}>允许跨域 iframe 视频（可选）</button>
+ {!!state.videos?.length&&<label>字幕目标视频<select value={state.video?`${state.video.frameId}:${state.video.id}`:''} onChange={event=>{void send('background','select-video',{id:event.target.value}).then(setState);}}>{state.videos.map(video=><option key={`${video.frameId}:${video.id}`} value={`${video.frameId}:${video.id}`}>{video.paused?'暂停':'播放'} · {(video.label||video.title).slice(0,40)}</option>)}</select></label>}
+ <p className="muted">原文按中文/英文文字比例判断；连续 3 个最终段后锁定。锁定：{state.languageLock||'尚未锁定'}。切换语言会开始新识别段。</p><p className="muted">侧栏左右位置由 Chrome 外观设置决定；扩展无法强制右侧。</p></section>}
+ <section className="translation-control"><div className="section-title"><h2>最终段翻译</h2><button disabled={preparing||config.translationEngine==='off'} onClick={prepare}>{preparing?'准备中…':'准备本地翻译'}</button></div><p className="muted" role="status">{config.translationEngine==='off'?'翻译已关闭':`${translation} · availability: ${availability}`}</p>{progress!==undefined&&<progress value={progress} max="1" aria-label="翻译模型下载进度"/>}{state.translationError&&<p className="error">{state.translationError}</p>}</section>
+ <section className="live"><div className="section-title"><h2>正在听</h2><span className="muted">实时原文</span></div><p className="live-source">{subtitlePage(state.latestText).text||'播放视频后，识别文字会显示在这里。'}</p>{state.latestTranslation&&state.latestTranslation!==state.latestText&&<><p className="live-translation">{subtitlePage(state.latestTranslation).text}</p><small className="muted">译文初稿</small></>}<p className="muted">中间结果实时更新；最终段保存后翻译。</p></section>
+ <section className="history"><div className="section-title"><h2>字幕历史</h2><span className="count">{total} 条最终字幕</span></div><input aria-label="搜索字幕历史" type="search" placeholder="搜索原文、译文或标题" value={search} onChange={event=>{setSearch(event.target.value);setPage(0);}}/><select aria-label="按录制会话筛选" value={session} onChange={event=>{setSession(event.target.value);setPage(0);}}><option value="">所有录制会话</option>{sessions.map(item=><option value={item.id} key={item.id}>{item.title.slice(0,60)} · {item.id.slice(0,6)}</option>)}</select>
+ <div className="export" aria-label="导出所选会话">{(['txt','md','srt','vtt']as ExportFormat[]).map(format=><button key={format} disabled={!total} onClick={()=>void download(format)}>导出 {format.toUpperCase()}</button>)}</div><p className="muted">导出所选会话的完整记录。时间为捕获估计；跨会话或识别段连续拼接。</p>
+ {!rows.length?<div className="empty">{search?'没有匹配的字幕。':'最终字幕会保存在这里。关闭侧栏或刷新 Chrome 后仍可查看。'}</div>:<ol className="transcript">{rows.map((row,index)=><React.Fragment key={JSON.stringify([row.sessionId,row.epoch,row.segmentId])}>{(index===0||rows[index-1].sessionId!==row.sessionId)&&<li className="session-heading">{row.title||'无标题视频'}<span>{new Date(row.createdAt).toLocaleString()}</span></li>}<li className="caption-row"><div className="row-meta"><span>{row.mediaTime===null?'音频':`${Math.floor(row.mediaTime/60)}:${String(Math.floor(row.mediaTime%60)).padStart(2,'0')}`} · 段 {row.epoch}</span><button className="seek" disabled={row.mediaTime===null} onClick={()=>void seek(row)} aria-label="跳转到此字幕对应的视频时间">跳转</button></div><p>{row.sourceText}</p>{row.translatedText&&row.translatedText!==row.sourceText&&<p className="translated">{row.translatedText}</p>}<small className={row.translationError?'error':'muted'}>{row.translationEngine==='same-language'?'源目标同语言，无需翻译':row.translationState==='disabled'?'翻译已关闭':row.translationState==='complete'?`${(row.translationRevision??1)>1?'已修订':'译文初稿'} · ${(row.translationCompletedAt??0)-(row.translationStartedAt??0)} ms`:(row.translationError||'等待最终段翻译')}</small></li></React.Fragment>)}</ol>}
+ {total>100&&<nav className="pagination" aria-label="字幕历史分页"><button disabled={page===0} onClick={()=>setPage(value=>value-1)}>上一页</button><span>{page+1} / {Math.ceil(total/100)}</span><button disabled={(page+1)*100>=total} onClick={()=>setPage(value=>value+1)}>下一页</button></nav>}</section>
+ <details className="diagnostics"><summary>音频诊断</summary><dl><dt>音频 RMS</dt><dd>{state.rms.toFixed(4)}</dd><dt>扬声器连接</dt><dd>{state.outputConnected?'已连接':'未连接'}</dd><dt>AudioContext</dt><dd>{state.contextState}</dd><dt>发送采样数</dt><dd>{state.framesSent}</dd><dt>Epoch</dt><dd>{state.epoch}</dd></dl></details></main>;
+}
+createRoot(document.getElementById('root')!).render(<SidePanel/>);

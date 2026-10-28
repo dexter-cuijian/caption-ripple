@@ -1,15 +1,18 @@
+import {subtitlePage}from'./display';
 import {RevisionGate} from './core';
-import {renderAndConfirm,overlayVisible} from './render';
+import {renderAndConfirm,overlayVisible,translationMatches} from './render';
 import {defaults,send,type Config,type VideoInfo} from './shared';
 const sentinel='__localCaptionInstalled';
 if(!(globalThis as any)[sentinel]){
  (globalThis as any)[sentinel]=true;
  const gate=new RevisionGate();let config:Config=defaults,selected:HTMLVideoElement|undefined,enabled=false,sessionId='',epoch=0,frameId=0;
  const ids=new WeakMap<HTMLVideoElement,string>(),observed=new WeakSet<HTMLVideoElement>();
- let lastUrl=location.href;let pending=false;let currentEvent:any;
+ let lastUrl=location.href;let pending=false;let currentEvent:any;let displayedTranslationRevision=0;
  const host=document.createElement('div');host.id='local-caption-host';
  const shadow=host.attachShadow({mode:'closed'});const text=document.createElement('div');text.setAttribute('role','status');text.setAttribute('aria-live','polite');
- const style=document.createElement('style');style.textContent=':host{pointer-events:none!important;z-index:2147483647!important}div{color:white;line-height:1.4;text-align:center;border-radius:8px;padding:8px 16px;max-width:90%;white-space:pre-wrap;overflow-wrap:anywhere;font-family:system-ui,sans-serif;text-shadow:0 1px 2px black}button{pointer-events:auto;position:fixed;right:16px;top:16px;z-index:2147483647;padding:8px;background:#111c;color:white;border:1px solid #bbb;border-radius:6px}';
+ const sourceLine=document.createElement('span'),targetLine=document.createElement('span');sourceLine.className='source';targetLine.className='translation';text.append(sourceLine,targetLine);
+ const clearText=()=>{sourceLine.textContent='';targetLine.textContent='';displayedTranslationRevision=0;};
+ const style=document.createElement('style');style.textContent='span{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;max-height:2.8em}.source{font-size:.72em;opacity:.72}.translation{font-size:1em}.translation:empty{display:none}:host{pointer-events:none!important;z-index:2147483647!important}div{color:white;line-height:1.4;text-align:center;border-radius:8px;padding:8px 16px;max-width:90%;white-space:pre-wrap;overflow-wrap:anywhere;font-family:system-ui,sans-serif;text-shadow:0 1px 2px black}button{pointer-events:auto;position:fixed;right:16px;top:16px;z-index:2147483647;padding:8px;background:#111c;color:white;border:1px solid #bbb;border-radius:6px}';
  const fullscreenButton=document.createElement('button');fullscreenButton.textContent='带字幕全屏';fullscreenButton.setAttribute('aria-label','使用字幕容器全屏');fullscreenButton.hidden=true;
  shadow.append(style,text,fullscreenButton);
  function info(v:HTMLVideoElement):VideoInfo{
@@ -44,17 +47,20 @@ if(!(globalThis as any)[sentinel]){
  chrome.runtime.onMessage.addListener((message,_sender,reply)=>{
   if(message.target!=='content')return;
   if(message.kind==='inspect')scan();
+  if(message.kind==='config'){config={...defaults,...message.config};position();}
+  if(message.kind==='seek'&&selected&&ids.get(selected)===message.id&&Number.isFinite(message.time)){selected.currentTime=Math.max(0,message.time);}
+  if(message.kind==='translation'&&enabled&&translationMatches(currentEvent,message.event,displayedTranslationRevision)){displayedTranslationRevision=message.event.translationRevision??1;targetLine.textContent=message.event.text===currentEvent.sourceText?'':subtitlePage(message.event.text).text;position();}
   if(message.kind==='select'){
-   if(message.sessionId&&(sessionId!==message.sessionId||epoch!==message.epoch)){sessionId=message.sessionId;epoch=message.epoch;gate.reset(sessionId,epoch);text.textContent='';currentEvent=undefined;}
+   if(message.sessionId&&(sessionId!==message.sessionId||epoch!==message.epoch)){sessionId=message.sessionId;epoch=message.epoch;gate.reset(sessionId,epoch);clearText();currentEvent=undefined;}
    frameId=message.frameId??0;config={...defaults,...message.config};
    selected=[...document.querySelectorAll('video')].find(v=>ids.get(v)===message.id);
    // Only the selected frame renders; top frame is the audio-only/cross-origin fallback.
    enabled=!!selected||(!message.id&&window===window.top);position();
   }
-  if(message.kind==='epoch'){sessionId=message.sessionId;epoch=message.epoch;gate.reset(sessionId,epoch);text.textContent='';currentEvent=undefined;}
-  if(message.kind==='clear'){enabled=false;sessionId='';text.textContent='';host.remove();}
+  if(message.kind==='epoch'){sessionId=message.sessionId;epoch=message.epoch;gate.reset(sessionId,epoch);clearText();currentEvent=undefined;}
+  if(message.kind==='clear'){enabled=false;sessionId='';clearText();host.remove();}
   if(message.kind==='subtitle'&&enabled&&gate.accept(message.event)){
-   const event=message.event;currentEvent=event;text.textContent=event.sourceText;position();
+   const event=message.event;currentEvent=event;sourceLine.textContent=subtitlePage(event.sourceText).text;targetLine.textContent='';displayedTranslationRevision=0;position();
    renderAndConfirm(()=>currentEvent===event&&host.isConnected&&!text.hidden&&document.visibilityState==='visible'&&overlayVisible(document.fullscreenElement instanceof HTMLVideoElement,host.getBoundingClientRect(),innerWidth,innerHeight)&&overlayVisible(false,text.getBoundingClientRect(),innerWidth,innerHeight),()=>{void send('background','rendered',{event:{type:'rendered',sessionId:event.sessionId,epoch:event.epoch,segmentId:event.segmentId,revision:event.revision,renderedAt:Date.now(),hasTranslation:false}});});
   }
   reply({ok:true});
