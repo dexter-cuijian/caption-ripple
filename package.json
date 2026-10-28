@@ -3,13 +3,16 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "start": "node server/index.mjs",
-    "test": "node --test server/test/*.test.mjs",
+    "test": "node --test server/test/*.test.mjs && npm run test:extension",
     "test:extension": "vitest run",
     "build": "node scripts/build.mjs",
-    "setup:model": "node scripts/download-model.mjs"
+    "setup:model": "node scripts/download-model.mjs",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "sherpa-onnx-node": "2.0.1",

@@ -1,0 +1,6 @@
+export const defaults={wsUrl:'ws://127.0.0.1:9876/ws/v1/session',sourceLanguage:'auto',fontSize:28,position:'bottom',opacity:0.72};
+export type Config=typeof defaults;
+export interface State {phase:string;message:string;tabId?:number;sessionId?:string;epoch:number;rms:number;framesSent:number;latestText:string;outputConnected:boolean;contextState:string;video?:VideoInfo;videos?:VideoInfo[]}
+export interface VideoInfo {id:string;url:string;title:string;currentTime:number|null;live:boolean;playbackRate:number;paused:boolean;observedAt:number;area:number;frameId?:number;label?:string}
+export const initialState:State={phase:'idle',message:'未启动',epoch:0,rms:0,framesSent:0,latestText:'',outputConnected:false,contextState:'none'};
+export const send=(target:string,kind:string,data:Record<string,unknown>={})=>chrome.runtime.sendMessage({target,kind,...data});

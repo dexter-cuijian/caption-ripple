@@ -1,0 +1,9 @@
+{
+ "manifest_version":3,"name":"Local Live Captions","version":"0.1.0","minimum_chrome_version":"116",
+ "description":"Local source captions from the current tab using a paired Sherpa companion.",
+ "permissions":["tabCapture","offscreen","activeTab","scripting","storage"],
+ "optional_host_permissions":["http://*/*","https://*/*"],
+ "background":{"service_worker":"background.js","type":"module"},
+ "action":{"default_popup":"popup.html","default_title":"本地实时字幕"},
+ "content_security_policy":{"extension_pages":"script-src 'self'; object-src 'self'; connect-src ws://127.0.0.1:* http://127.0.0.1:* ws://localhost:* http://localhost:*"}
+}
