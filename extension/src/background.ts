@@ -34,6 +34,10 @@ async function choose(){
  await broadcast('select',{id:current?.id,frameId:current?.frameId,config:await chrome.storage.sync.get(defaults),sessionId:state.sessionId,epoch:state.epoch});
  await send('offscreen','video',{video:current,reset:previous&&previous!==selected?'video-change':undefined}).catch(()=>{});
 }
+async function pageLocation(url:string,title?:string){
+ if(!/^https?:\/\//.test(url)||state.captureUrl===url)return;state.captureUrl=url;state.captureTitle=title??state.captureTitle;videos.clear();selected='';manual=false;state.video=undefined;state.videos=[];
+ await send('offscreen','page-location',{url,title:state.captureTitle}).catch(()=>{});await choose();
+}
 async function start(expectedTabId?:number){
  const[tab]=await chrome.tabs.query({active:true,currentWindow:true});
  if(!tab?.id||!/^https?:\/\//.test(tab.url??''))throw new Error('请在目标 HTTP/HTTPS 页面点击工具栏中的扩展图标授权，再从侧栏启动');
@@ -75,6 +79,7 @@ chrome.runtime.onMessage.addListener((message,sender,reply)=>{
    const row=message.row;if(!canSeekMedia(row,state.video,videos.candidates()))throw new Error('无法安全跳转：直播、媒体来源不匹配或播放器身份不唯一');
    await chrome.tabs.sendMessage(state.tabId!,{target:'content',kind:'seek',id:state.video!.id,mediaUrl:row.mediaUrl,time:row.mediaTime},{frameId:state.video!.frameId??0});
   }
+  if(message.kind==='page-location'&&sender.tab?.id===state.tabId&&sender.frameId===0)await pageLocation(message.url,message.title);
   if(message.kind==='frames-changed'&&sender.tab?.id===state.tabId&&state.tabId)await chrome.scripting.executeScript({target:{tabId:state.tabId,allFrames:true},files:['content.js']}).catch(()=>{});
   if(message.kind==='videos'&&sender.tab?.id===state.tabId){videos.report(sender.frameId??0,message.videos.map((video:any)=>({...video,documentId:sender.documentId})));await choose();}
   if(message.kind==='select-video'){manual=true;selected=message.id;await choose();}
@@ -86,4 +91,4 @@ chrome.runtime.onMessage.addListener((message,sender,reply)=>{
 });
 chrome.storage.onChanged.addListener((changes,area)=>{if(area==='local'&&changes.glossary)void send('offscreen','glossary',{glossary:changes.glossary.newValue??emptyGlossary}).catch(()=>{});if(area==='sync')void chrome.storage.sync.get(defaults).then(async config=>{await broadcast('config',{config});await send('offscreen','config',{config}).catch(()=>{});});});
 chrome.tabs.onRemoved.addListener(tabId=>{if(tabId===state.tabId){retire(state.sessionId,state.epoch);cancelPanelTranslations('目标标签页已关闭');if(state.sessionId)void cancelPending(state.sessionId,state.epoch,'目标标签页已关闭');void send('offscreen','stop');state={...initialState};}});
-chrome.tabs.onUpdated.addListener((tabId,change)=>{if(tabId===state.tabId&&change.status==='loading'){videos.clear();manual=false;void choose();}if(tabId===state.tabId&&change.status==='complete'&&state.phase!=='idle')void chrome.scripting.executeScript({target:{tabId,allFrames:true},files:['content.js']}).catch(()=>{});});
+chrome.tabs.onUpdated.addListener((tabId,change)=>{if(tabId===state.tabId&&change.url)void pageLocation(change.url);if(tabId===state.tabId&&change.status==='loading'){videos.clear();manual=false;void choose();}if(tabId===state.tabId&&change.status==='complete'&&state.phase!=='idle')void chrome.scripting.executeScript({target:{tabId,allFrames:true},files:['content.js']}).catch(()=>{});});

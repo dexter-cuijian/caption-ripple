@@ -70,3 +70,12 @@ test('hello hotwords and real offscreen draft path use scoped versioned names wh
  expect(source.sourceText).toBe('蒋万安谈蓝营');expect(source.sourceRaw).toBe('蒋万安谈蓝营');expect(source.glossaryVersion).toBe(5);expect(translated.text).toContain('Chiang Wan-an');expect(translated.text).toContain('pan-blue camp');expect(translated.text).not.toMatch(/ZXQ/i);expect(translated.glossaryVersion).toBe(5);
  await command('glossary',{glossary:{version:6,entries:[]}});expect(runtimeMessages.some(message=>message.kind==='epoch'&&message.epoch===1)).toBe(true);await command('stop');
 });
+test('audio-only SPA navigation updates scoped terms/hotwords and cancels old translation epoch',async()=>{
+ let late:(text:string)=>void=()=>{},calls=0;vi.stubGlobal('Translator',{availability:async()=>'available',create:async()=>({translate:async(text:string)=>{if(calls++===0)return new Promise<string>(resolve=>{late=resolve;});return text;},destroy:()=>{}})});
+ const entries=[{id:'a',source:'蓝营',target:'pan-blue camp',sourceLang:'zh',targetLang:'en',scope:'video',videoUrl:'https://n.test/a'}];
+ await start(undefined,{scopeUrl:'https://n.test/a',glossary:{version:1,entries}});sockets[0].open();
+ sockets[0].onmessage({data:JSON.stringify({type:'subtitle',phase:'final',sessionId:'session',epoch:0,segmentId:'1',revision:1,sourceText:'蓝营',sourceLanguage:'zh'})});await new Promise(resolve=>setTimeout(resolve,0));
+ await command('page-location',{url:'https://n.test/b',title:'B'});const resets=sockets[0].sent.filter((value:any)=>typeof value==='string').map(JSON.parse).filter((value:any)=>value.type==='reset');expect(resets.at(-1).epoch).toBe(1);expect(resets.at(-1).hotwords).toEqual([]);
+ sockets[0].onmessage({data:JSON.stringify({type:'reset',sessionId:'session',epoch:1})});sockets[0].onmessage({data:JSON.stringify({type:'subtitle',phase:'final',sessionId:'session',epoch:1,segmentId:'2',revision:1,sourceText:'蓝营',sourceLanguage:'zh'})});late('old late text');await new Promise(resolve=>setTimeout(resolve,0));
+ const sources=runtimeMessages.filter(message=>message.kind==='subtitle');expect(sources.at(-1).event.matchedTerms).toEqual([]);expect(runtimeMessages.filter(message=>message.kind==='translation').every(message=>message.event.epoch===1)).toBe(true);await command('stop');
+});

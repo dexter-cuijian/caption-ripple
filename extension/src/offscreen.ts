@@ -114,6 +114,7 @@ chrome.runtime.onMessage.addListener((message,_sender,reply)=>{
   if(message.kind==='config'){const changed=config.sourceLanguage!==message.config.sourceLanguage||config.targetLanguage!==message.config.targetLanguage||config.translationEngine!==message.config.translationEngine||config.proofreading!==message.config.proofreading;config={...defaults,...message.config};if(changed&&active)reset('语言或翻译引擎设置已更新');}
   if(message.kind==='start')await start(message);
   if(message.kind==='stop')await stop();
+  if(message.kind==='page-location'&&/^https?:\/\//.test(message.url)&&message.url!==captureScopeUrl){captureScopeUrl=message.url;video=undefined;if(active)reset('页面地址已更新，重新应用当前范围术语');}
   if(message.kind==='video'){video=message.video;if(message.reset&&active)reset(message.reset);}
   if(message.kind==='rendered'&&accepted&&socket?.readyState===WebSocket.OPEN)socket.send(JSON.stringify(message.event));
   return {ok:true};

@@ -33,3 +33,8 @@ test('local model receives term context and rejects inconsistent fixed names ins
  let prompt='';const entries=[entry('蓝营','pan-blue camp')];const provider=new LocalModelTranslationProvider(()=>'token',async(_url:any,options:any)=>{prompt=JSON.parse(options.body).messages[0].content;return new Response(JSON.stringify({choices:[{message:{content:'Lan Yin did not grow by20%'}}]}),{status:200});},(text,source,target)=>matchGlossary(text,entries,source,target,'https://n.test'));
  await expect(provider.proofread('蓝营不增长20%','后续语境','The pan-blue camp did not grow by20%','zh','en')).rejects.toThrow('术语');expect(prompt).toContain('pan-blue camp');expect(prompt).toContain('蓝营');
 });
+test('fixed names Ann and Anna are counted as distinct complete terms rather than overlapping substrings',()=>{
+ const matches=matchGlossary('安和安娜',[entry('安','Ann'),entry('安娜','Anna')],'zh','en','https://n.test');
+ expect(termsConsistent('Ann and Anna',matches)).toBe(true);expect(termsConsistent('Anna and Anna',matches)).toBe(false);
+ const plan=protectTerms('安和安娜',matches,'ABCDEF01');expect(restoreTerms(plan.text.replace('和',' and '),plan)).toBe('Ann and Anna');
+});

@@ -30,7 +30,10 @@ export function restoreTerms(candidate:string,plan:ProtectedTerms){
 }
 export function termsConsistent(candidate:string,matches:TermMatch[]){
  if(/ZXQ[A-Z0-9]+QXZ/i.test(candidate))return false;const expected=new Map<string,number>();for(const match of matches){const target=match.entry.target.toLocaleLowerCase();expected.set(target,(expected.get(target)??0)+1);}
- const lower=candidate.toLocaleLowerCase();for(const[target,count]of expected)if(lower.split(target).length-1!==count)return false;return true;
+ const lower=candidate.toLocaleLowerCase(),targets=[...expected.keys()].sort((a,b)=>b.length-a.length),found=new Map<string,number>();const word=/[\p{Script=Latin}\p{N}_-]/u;
+ for(let cursor=0;cursor<lower.length;){const target=targets.find(value=>lower.startsWith(value,cursor)&&!(/[a-z0-9]/i.test(value[0])&&word.test(lower[cursor-1]??''))&&!(/[a-z0-9]/i.test(value.at(-1)!)&&word.test(lower[cursor+value.length]??'')));
+ if(target){found.set(target,(found.get(target)??0)+1);cursor+=target.length;}else cursor++;}
+ for(const[target,count]of expected)if((found.get(target)??0)!==count)return false;return true;
 }
 export function hotwordsFor(entries:GlossaryEntry[],sourceLanguage:string,url:string){return[...new Set(entries.filter(entry=>(sourceLanguage==='auto'||entry.sourceLang===sourceLanguage)&&inScope(entry,url)&&Array.from(entry.source).length<=32).map(entry=>entry.source))].slice(0,64);}
 const taipei='https://english.gov.taipei/cp.aspx?n=9098E8D466ED59D5&s=1A2F0EABD298B76F',legislator='https://www.ly.gov.tw/Pages/List.aspx?nodeid=46775';

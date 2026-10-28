@@ -43,7 +43,7 @@ if(!(globalThis as any)[sentinel]){
  function schedule(){if(!pending){pending=true;requestAnimationFrame(()=>{pending=false;scan();});}}
  new MutationObserver(records=>{if(records.some(r=>[...r.addedNodes].some(n=>n instanceof Element&&(n.tagName==='IFRAME'||n.querySelector('iframe')))))void send('background','frames-changed').catch(()=>{});if(records.some(r=>r.target!==host&&!shadow.contains(r.target)))schedule();}).observe(document.documentElement,{childList:true,subtree:true});
  document.addEventListener('fullscreenchange',position);window.addEventListener('resize',position);window.addEventListener('scroll',position,{passive:true});
- setInterval(()=>{if(location.href!==lastUrl){lastUrl=location.href;if(selected)void send('background','video-event',{video:info(selected),reason:'navigation'});}if(sessionId)scan();},1000);
+ setInterval(()=>{if(location.href!==lastUrl){lastUrl=location.href;if(window===window.top&&sessionId)void send('background','page-location',{url:location.href,title:document.title});else if(selected)void send('background','video-event',{video:info(selected),reason:'navigation'});}if(sessionId)scan();},1000);
  chrome.runtime.onMessage.addListener((message,_sender,reply)=>{
   if(message.target!=='content')return;
   if(message.kind==='inspect')scan();
