@@ -13,7 +13,7 @@ const validHost=host=>/^(127\.0\.0\.1|localhost|\[::1\])(:\d{1,5})?$/.test(host?
 const sameToken=(provided,expected)=>{if(typeof provided!=='string')return false;const actual=Buffer.from(provided),wanted=Buffer.from(expected);return actual.length===wanted.length&&timingSafeEqual(actual,wanted);};
 const json=(response,status,payload)=>{response.writeHead(status,{'content-type':'application/json; charset=utf-8','cache-control':'no-store'});response.end(JSON.stringify(payload));};
 
-export function createServer({modelDir=join(projectRoot,'.models','paraformer'),runtimeDir=join(projectRoot,'.runtime'),workerFactory=defaultWorkerFactory,helloTimeoutMs=5000}={}){
+export function createServer({modelDir=join(projectRoot,'.models','paraformer'),runtimeDir=join(projectRoot,'.runtime'),workerFactory=defaultWorkerFactory,helloTimeoutMs=5000,evaluationRecordDir=process.env.CAPTION_EVAL_RECORD_DIR}={}){
   runtimeDir=resolve(runtimeDir);modelDir=resolve(modelDir);
   mkdirSync(runtimeDir,{recursive:true,mode:0o700});
   const tokenPath=join(runtimeDir,'token');
@@ -71,7 +71,7 @@ export function createServer({modelDir=join(projectRoot,'.models','paraformer'),
           if(typeof message.sessionId!=='string'||!message.sessionId||message.sessionId.length>128||!Number.isSafeInteger(message.epoch)||message.epoch<0||!['auto','zh','en'].includes(message.sourceLanguage??'auto'))return ws.close(4400,'Invalid hello fields');
           clearTimeout(timer);
           if(decoderOwner)return ws.close(4429,'One native decoder session at a time');
-          session=new Session(message,send,workerFactory,event=>diagnostics.log(event),{modelDir,acquireDecoder,releaseDecoder});sessions.add(session);
+          session=new Session(message,send,workerFactory,event=>diagnostics.log(event),{modelDir,acquireDecoder,releaseDecoder,evaluationRecordDir});sessions.add(session);
           return;
         }
         if(isBinary){session.audio(data);return;}
@@ -97,9 +97,9 @@ export function createServer({modelDir=join(projectRoot,'.models','paraformer'),
   const close=server.close.bind(server);
   server.close=callback=>{
     for(const ws of clients)ws.terminate();
-    for(const session of sessions)session.close();
+    const recordings=[...sessions].map(session=>session.close());
     wss.close();
-    return close(error=>{diagnostics.close().then(()=>callback?.(error));});
+    return close(error=>{Promise.all([diagnostics.close(),...recordings]).then(()=>callback?.(error));});
   };
   server.tokenPath=tokenPath;
   return server;

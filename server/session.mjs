@@ -1,3 +1,4 @@
+import {createEvaluationRecorder} from './recording.mjs';
 import {DecoderProcess} from './process.mjs';
 
 export const ENGINE='sherpa-onnx/paraformer';
@@ -12,6 +13,7 @@ export class Session {
     this.queue=[];this.pending=null;this.clockPacket=null;this.nextSeq=0;this.nextSample=0;
     this.segment=0;this.revision=0;this.lastText='';this.speechStartAt=null;this.segmentStart=null;this.segmentMediaTime=null;
     this.paused=false;this.closed=false;this.ready=false;this.history=[];this.renderedRows=new Map();this.firstRenders=new Set();
+    this.recording=createEvaluationRecorder(options.evaluationRecordDir,hello);
     this.startWorker(false);
   }
   startWorker(reset,reuse=null){
@@ -59,6 +61,7 @@ export class Session {
     if(!buffer.length||buffer.length>3200||buffer.length%2)throw new Error('PCM must contain 1–1600 int16 mono samples');
     this.nextSeq++;this.nextSample+=buffer.length/2;
     if(this.queue.length>=20){this.fail('audio_overload','Decoder queue exceeded 2 seconds; reset with a new epoch');return;}
+    this.recording?.record(buffer,meta);
     const samples=new Float32Array(buffer.length/2);
     for(let i=0;i<samples.length;i++)samples[i]=buffer.readInt16LE(i*2)/32768;
     this.queue.push({samples,meta,receivedAt:Date.now(),enqueuedAt:performance.now()});
@@ -121,5 +124,5 @@ export class Session {
     if(reuse)reuse.postMessage({type:'reset'});
   }
   pause(){this.paused=true;this.ready=false;this.queue=[];this.pending=null;this.clockPacket=null;this.worker?.terminate();this.options.releaseDecoder?.(this);this.status('paused','Capture paused; resume with a newer epoch','info');}
-  close(){if(this.closed)return;this.closed=true;this.ready=false;this.queue=[];this.pending=null;this.clockPacket=null;this.worker?.terminate();this.options.releaseDecoder?.(this);}
+  close(){if(this.closed)return this.recording?.close();this.closed=true;this.ready=false;this.queue=[];this.pending=null;this.clockPacket=null;this.worker?.terminate();this.options.releaseDecoder?.(this);return this.recording?.close();}
 }
