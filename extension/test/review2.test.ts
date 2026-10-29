@@ -49,6 +49,12 @@ test('display cleanup preserves negation/numbers/meaningful fillers, final punct
  const raw='嗯，啊，那个不是20个，就是没有增长3%';expect(displaySource(raw,'interim','duration')).toBe(raw);
  expect(displaySource(raw,'final','duration')).toBe('那个不是20个，就是没有增长3%，');expect(displaySource(raw,'final','silence')).toBe('那个不是20个，就是没有增长3%。');expect(displaySource('嗯嗯嗯 没有20个','final','silence')).toBe('没有20个。');
 });
+test('English all-caps ASR is sentence-cased for display while source remains untouched',()=>{
+ const raw='THIS IS A TOUCH SCREEN. I THINK IT WORKS';
+ expect(displaySource(raw,'interim')).toBe('This is a touch screen. I think it works');
+ expect(raw).toBe('THIS IS A TOUCH SCREEN. I THINK IT WORKS');
+ expect(displaySource('MacBook ProLED is here','interim')).toBe('MacBook ProLED is here');
+});
 import{correctionSafe}from'../src/providers';
 test('proofreading guard rejects dropped negation/numbers and missing comparative structure',()=>{
  expect(correctionSafe('没有增长20%','Growth of 20%.','en')).toBe(false);expect(correctionSafe('没有增长20%','Did not grow by 30%.','en')).toBe(false);

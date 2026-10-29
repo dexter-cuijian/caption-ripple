@@ -6,6 +6,26 @@ test('final source and translation patch survive closing and reopening connectio
  const history=await import('../src/history');await history.saveFinal(row());await history.saveTranslation({sessionId:'persistent',epoch:0,segmentId:'a',sourceRevision:1,targetLanguage:'en',text:'No growth of 20%',engine:'chrome',startedAt:1,completedAt:2});
  await history.closeHistory();const result=await history.queryHistory({session:'persistent'});expect(result.total).toBe(1);expect(result.rows[0].translatedText).toBe('No growth of 20%');await history.closeHistory();
 });
+test('progressive page-caption revisions replace the same history row',async()=>{
+ const history=await import('../src/history');
+ const first={...row('page-1',1),sessionId:'page-revisions',engine:'page-caption',sourceText:'You know, the first thing'};
+ await history.saveFinal(first);
+ await history.saveFinal({...first,revision:2,sourceText:'You know, the first thing you think',createdAt:2});
+ const result=await history.queryHistory({session:'page-revisions'});
+ expect(result.total).toBe(1);expect(result.rows[0].sourceText).toBe('You know, the first thing you think');
+ await history.closeHistory();
+});
+test('history hides older cumulative page-caption rows already stored with separate IDs',async()=>{
+ const history=await import('../src/history');
+ const base={...row('page-1'),sessionId:'legacy-page',engine:'page-caption',sourceText:'You know, the first thing',createdAt:1000,mediaTime:2};
+ await history.saveFinal(base);
+ await history.saveFinal({...base,segmentId:'page-2',sourceText:'You know, the first thing you think',createdAt:2000,mediaTime:3});
+ await history.saveFinal({...base,segmentId:'page-3',sourceText:'You know, the first thing you think about',createdAt:3000,mediaTime:4});
+ const result=await history.queryHistory({session:'legacy-page'});
+ expect(result.total).toBe(1);expect(result.rows[0].sourceText).toBe('You know, the first thing you think about');
+ expect(await history.allHistory('legacy-page')).toHaveLength(1);
+ await history.closeHistory();
+});
 test('compact current-page history filters by the active page URL and limits visible rows',async()=>{
  const history=await import('../src/history');
  for(let i=0;i<6;i++)await history.saveFinal({...row(`current-${i}`),sessionId:'compact',url:'https://example.com/news',createdAt:i+100});

@@ -2,6 +2,14 @@ import type{TermMatch}from'./glossary';
 export interface CaptionRow{glossaryVersion?:number;matchedTerms?:TermMatch[];sessionId:string;epoch:number;segmentId:string;revision:number;sourceText:string;sourceRaw?:string;videoId?:string;mediaUrl?:string;documentId?:string;live?:boolean;proofreadingState?:string;proofreadingError?:string;translatedText?:string;translationRevision?:number;displaySourceText?:string;sourceLanguage:string;targetLanguage:string;mediaTime:number|null;start:number;end:number;url:string;title:string;createdAt:number;engine:string;translationEngine?:string;translationState?:string;translationError?:string;translationStartedAt?:number;translationCompletedAt?:number}
 export interface TranslationEvent{glossaryVersion?:number;matchedTerms?:TermMatch[];type?:string;sessionId:string;epoch:number;segmentId:string;sourceRevision:number;translationRevision?:number;targetLanguage:string;text:string;engine?:string;phase?:string;startedAt?:number;completedAt?:number}
 export const rowKey=(row:Pick<CaptionRow,'sessionId'|'epoch'|'segmentId'>)=>[row.sessionId,row.epoch,row.segmentId];
+/** Hide legacy rows created while a single webpage caption was revealed word by word. */
+export function olderPageCaptionDuplicate(older:CaptionRow,newer:CaptionRow){
+ if(older.engine!=='page-caption'||newer.engine!=='page-caption'||older.sessionId!==newer.sessionId||older.url!==newer.url)return false;
+ if(newer.createdAt<older.createdAt||newer.createdAt-older.createdAt>5000)return false;
+ if(older.mediaTime!=null&&newer.mediaTime!=null&&Math.abs(newer.mediaTime-older.mediaTime)>5)return false;
+ const oldText=older.sourceText.trim(),newText=newer.sourceText.trim();
+ return oldText.length>0&&newText.length>oldText.length&&newText.startsWith(oldText);
+}
 export function mergeFinal(existing:CaptionRow|undefined,event:any):CaptionRow|undefined{
  if(event.phase!=='final')return existing;
  if(existing&&existing.revision>=event.revision)return existing;
@@ -26,12 +34,12 @@ export async function cancelPending(sessionId:string,epoch:number,reason:string)
 }
 export async function queryHistory({search='',session='',url='',page=0,pageSize=100}:{search?:string;session?:string;url?:string;page?:number;pageSize?:number}={}){
  const database=await db();return new Promise<{rows:CaptionRow[];total:number;sessions:Array<{id:string;title:string}>}>((resolve,reject)=>{
- const tx=database.transaction('captions'),request=tx.objectStore('captions').index('createdAt').openCursor(null,'prev');const rows:CaptionRow[]=[],sessions=new Map<string,string>();let total=0;const needle=search.toLocaleLowerCase(),limit=Math.min(100,Math.max(1,pageSize)),offset=Math.max(0,page)*limit;
+ const tx=database.transaction('captions'),request=tx.objectStore('captions').index('createdAt').openCursor(null,'prev');const rows:CaptionRow[]=[],sessions=new Map<string,string>();let total=0,lastAccepted:CaptionRow|undefined;const needle=search.toLocaleLowerCase(),limit=Math.min(100,Math.max(1,pageSize)),offset=Math.max(0,page)*limit;
  request.onsuccess=()=>{const cursor=request.result;if(!cursor)return;const row=cursor.value as CaptionRow;if(sessions.size<100)sessions.set(row.sessionId,row.title||row.url||row.sessionId);
- if((!session||row.sessionId===session)&&(!url||row.url===url)&&(!needle||`${row.sourceText}\n${row.translatedText??''}\n${row.title}`.toLocaleLowerCase().includes(needle))){if(total>=offset&&rows.length<limit)rows.push(row);total++;}cursor.continue();};tx.oncomplete=()=>resolve({rows,total,sessions:[...sessions].map(([id,title])=>({id,title}))});tx.onerror=()=>reject(tx.error);
+ if((!session||row.sessionId===session)&&(!url||row.url===url)&&(!needle||`${row.sourceText}\n${row.translatedText??''}\n${row.title}`.toLocaleLowerCase().includes(needle))){if(!lastAccepted||!olderPageCaptionDuplicate(row,lastAccepted)){if(total>=offset&&rows.length<limit)rows.push(row);total++;lastAccepted=row;}}cursor.continue();};tx.oncomplete=()=>resolve({rows,total,sessions:[...sessions].map(([id,title])=>({id,title}))});tx.onerror=()=>reject(tx.error);
  });
 }
-export async function allHistory(session=''){const database=await db();return new Promise<CaptionRow[]>((resolve,reject)=>{const rows:CaptionRow[]=[];const request=database.transaction('captions').objectStore('captions').index('createdAt').openCursor();request.onsuccess=()=>{const cursor=request.result;if(!cursor){resolve(rows);return;}if(!session||cursor.value.sessionId===session)rows.push(cursor.value);cursor.continue();};request.onerror=()=>reject(request.error);});}
+export async function allHistory(session=''){const database=await db();return new Promise<CaptionRow[]>((resolve,reject)=>{const rows:CaptionRow[]=[];const request=database.transaction('captions').objectStore('captions').index('createdAt').openCursor();request.onsuccess=()=>{const cursor=request.result;if(!cursor){resolve(rows);return;}const row=cursor.value as CaptionRow;if(!session||row.sessionId===session){const previous=rows.at(-1);if(previous&&olderPageCaptionDuplicate(previous,row))rows[rows.length-1]=row;else rows.push(row);}cursor.continue();};request.onerror=()=>reject(request.error);});}
 export type ExportFormat='txt'|'md'|'srt'|'vtt';
 function timestamp(seconds:number,separator:string){const ms=Math.max(0,Math.round(seconds*1000));return`${String(Math.floor(ms/3600000)).padStart(2,'0')}:${String(Math.floor(ms/60000)%60).padStart(2,'0')}:${String(Math.floor(ms/1000)%60).padStart(2,'0')}${separator}${String(ms%1000).padStart(3,'0')}`;}
 export function exportCaptions(rows:CaptionRow[],format:ExportFormat){

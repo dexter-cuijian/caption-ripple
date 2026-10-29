@@ -106,6 +106,14 @@ test('page caption becomes the source and suppresses conflicting audio ASR',asyn
  expect(sockets[0].sent.filter((value:any)=>typeof value==='string').map(JSON.parse).some((value:any)=>value.type==='rendered'&&value.segmentId==='page-1')).toBe(false);
  await command('stop');
 });
+test('page-caption revisions reach history with one segment identity',async()=>{
+ await start({currentTime:2,paused:false});sockets[0].open();
+ await command('page-caption',{caption:{text:'You know',language:'en',mediaTime:2,segmentId:'page-1',revision:1}});
+ await command('page-caption',{caption:{text:'You know the first thing',language:'en',mediaTime:3,segmentId:'page-1',revision:2}});
+ const events=runtimeMessages.filter(message=>message.kind==='subtitle').map(message=>message.event);
+ expect(events.map(event=>[event.segmentId,event.revision])).toEqual([['page-1',1],['page-1',2]]);
+ await command('stop');
+});
 test('ready state exposes the loaded ASR model to distinguish auto from bilingual detection',async()=>{
  await start();sockets[0].open();
  sockets[0].onmessage({data:JSON.stringify({type:'ready',sessionId:'session',epoch:0,engine:'sherpa-onnx/zipformer-zh'})});

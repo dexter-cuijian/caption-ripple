@@ -135,7 +135,7 @@ chrome.runtime.onMessage.addListener((message,_sender,reply)=>{
    if(!pageCaptionMode)publish({phase:'running',message:'正在使用网页字幕'});
    pageCaptionMode=true;pageCaptionUntil=Date.now()+6000;
    const caption=message.caption;
-   receiveSubtitle({type:'subtitle',sessionId,epoch,segmentId:caption.segmentId,revision:1,phase:'final',sourceText:caption.text,sourceLanguage:caption.language??'auto',start:caption.mediaTime??0,end:(caption.mediaTime??0)+3,mediaTime:caption.mediaTime??null,createdAt:Date.now(),engine:'page-caption',speechStartAt:null,audioEndAt:Date.now(),timestampKind:'page-caption-observed'});
+   receiveSubtitle({type:'subtitle',sessionId,epoch,segmentId:caption.segmentId,revision:caption.revision??1,phase:'final',sourceText:caption.text,sourceLanguage:caption.language??'auto',start:caption.mediaTime??0,end:(caption.mediaTime??0)+3,mediaTime:caption.mediaTime??null,createdAt:Date.now(),engine:'page-caption',speechStartAt:null,audioEndAt:Date.now(),timestampKind:'page-caption-observed'});
    return{ok:true};
   }
   if(message.kind==='prepare-translation'){try{await nativeProvider.prepare(message.sourceLanguage,message.targetLanguage);translations.retry();publish({translationStatus:'offscreen-ready',translationContext:'offscreen',translationError:undefined});return{ok:true,context:'offscreen'};}catch(error){return{ok:false,error:String(error)};}}

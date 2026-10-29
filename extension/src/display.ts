@@ -11,6 +11,8 @@ export function subtitlePage(raw:string){
 }
 /** Conservative display-only cleanup. Never modify interim hypotheses or meaningful discourse words. */
 export function displaySource(raw:string,phase:string,splitReason?:string){
+ const letters=raw.match(/[a-z]/gi)??[];
+ if(letters.length>=8&&letters.every(letter=>letter===letter.toUpperCase()))raw=raw.toLowerCase().replace(/\bi\b/g,'I').replace(/(^|[.!?]\s+)([a-z])/g,(_match,prefix:string,letter:string)=>prefix+letter.toUpperCase());
  if(phase!=='final')return raw;
  let text=raw.replace(/(^|[，。！？、\s])(?:嗯|啊)(?=[，。！？、\s]|$)/gu,'$1').replace(/(^|[，。！？、\s])(?:[嗯啊][\s，、]*){2,}(?=[，。！？、\s]|$)/gu,'$1').replace(/^[，、\s]+|[，、\s]+$/gu,'').replace(/[，、]{2,}/g,'，');
  if(text&&!/[。！？!?，,.;；]$/.test(text))text+=/[\u3400-\u9fff]/.test(text)?(splitReason==='silence'?'。':'，'):(splitReason==='silence'?'.':',');return text;
