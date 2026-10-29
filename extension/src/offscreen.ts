@@ -1,9 +1,9 @@
 import{emptyGlossary,validateGlossary,matchGlossary,protectTerms,restoreTerms,hotwordsFor,effectiveGlossaryEntries,type GlossaryState,type GlossaryEntry}from'./glossary';
 import{NativeTranslationProvider,LocalModelTranslationProvider,ContextProofreader,withDeadline}from'./providers';
-import{displaySource}from'./display';
+import{displaySource,subtitlePage}from'./display';
 import{correctRecognizedNames}from'./name-corrections';
 import {translationMatches}from'./render';
-import {FinalTranslator,translatorAPI,type NativeTranslator} from './translation';
+import {FinalTranslator,LiveTranslator,translatorAPI,type NativeTranslator} from './translation';
 import {RevisionGate,terminalClose} from './core';
 import {defaults, initialState,send, type Config,type VideoInfo} from './shared';
 let context:AudioContext|undefined,stream:MediaStream|undefined,source:MediaStreamAudioSourceNode|undefined,worklet:AudioWorkletNode|undefined,silent:GainNode|undefined;
@@ -40,6 +40,12 @@ async function translateDraft(text:string,sourceLanguage:string,targetLanguage:s
 const translations=new FinalTranslator({translate:translateDraft},translationCompleted,event=>{
  publish({translationStatus:'unavailable',translationError:event.error});void send('background','translation-failed',{event}).catch(()=>{});
 },{deadlineMs:8000,onWork:active=>proofreader.prioritizeDraft(active)});
+const liveTranslations=new LiveTranslator({translate:translateDraft},event=>{
+ const current=latestSource;
+ if(!current||current.sessionId!==event.sessionId||current.epoch!==event.epoch||current.segmentId!==event.segmentId)return;
+ publish({latestTranslation:event.text,translationStatus:'live-ready',translationError:undefined});
+ void send('background','interim-translation',{event:{...event,engine:draftEngine}}).catch(error=>publish({translationError:String(error)}));
+},error=>publish({translationError:`实时翻译暂不可用：${error}`}));
 
 function receiveSubtitle(data:any){
  if(!revisions.accept(data))return;
@@ -47,8 +53,13 @@ function receiveSubtitle(data:any){
  else{const corrected=correctRecognizedNames(data,glossary.entries,scopeUrl());data.sourceRaw=corrected.sourceRaw;data.sourceText=corrected.sourceText;}
  data.glossaryVersion=glossary.version;
  data.matchedTerms=matched(data.sourceText,data.sourceLanguage==='auto'?(/[\u3400-\u9fff]/.test(data.sourceText)?'zh':'en'):data.sourceLanguage,config.targetLanguage);
+ const previous=latestSource;
  data.displaySourceText=displaySource(data.sourceText,data.phase,data.splitReason);latestSource=data;
- publish({latestText:data.sourceText,latestDisplayText:data.displaySourceText,latestTranslation:'',latestTranslationRevision:0});
+ const page=subtitlePage(data.displaySourceText);
+ const keepTranslation=data.phase==='interim'&&previous?.phase==='interim'&&previous.segmentId===data.segmentId&&data.sourceText.startsWith(previous.sourceText);
+ publish({latestText:data.sourceText,latestDisplayText:data.displaySourceText,latestTranslation:keepTranslation?state.latestTranslation:'',latestTranslationRevision:0});
+ if(data.phase==='final')liveTranslations.finalize(data);
+ else if(config.translationEngine!=='off')liveTranslations.observe(data,config.targetLanguage,page.text,page.index);
  const targetLanguage=config.targetLanguage;
  void send('background','subtitle',{event:{...data,targetLanguage,translationState:config.translationEngine==='off'?'disabled':undefined}}).then(response=>{
   if(response?.error)throw new Error(response.error);
@@ -60,7 +71,7 @@ function receiveSubtitle(data:any){
 }
 
 function reset(reason:string){
- pageCaptionMode=false;pageCaptionUntil=0;
+ pageCaptionMode=false;pageCaptionUntil=0;liveTranslations.reset(sessionId,epoch+1);
  latestSource=undefined;const previousEpoch=epoch;epoch++;revisions.reset(sessionId,epoch);translations.reset(sessionId,epoch);proofreader.reset(sessionId,epoch);seq=0;sampleStart=0;anchor=null;accepted=false;
  publish({latestText:'',latestTranslation:'',translationError:undefined,latestTranslationRevision:0,latestDisplayText:'',message:reason});
  if(socket?.readyState===WebSocket.OPEN)socket.send(JSON.stringify({type:'reset',sessionId,epoch,mediaTime:video?.currentTime??null,sourceLanguage:config.sourceLanguage,hotwords:hotwordsFor(glossary.entries,config.sourceLanguage,scopeUrl()),reason}));
@@ -93,7 +104,7 @@ function connect(){
 }
 async function stop(){
  pageCaptionMode=false;pageCaptionUntil=0;
- latestSource=undefined;active=false;accepted=false;clearTimeout(retry);translations.reset('',-1);proofreader.reset('',-1);
+ latestSource=undefined;active=false;accepted=false;clearTimeout(retry);translations.reset('',-1);liveTranslations.reset('',-1);proofreader.reset('',-1);
  if(socket?.readyState===WebSocket.OPEN)socket.send(JSON.stringify({type:'stop',sessionId,epoch}));socket?.close();socket=undefined;
  if(worklet)worklet.port.onmessage=null;
  for(const node of [worklet,source,silent])try{node?.disconnect();}catch{}
@@ -102,7 +113,7 @@ async function stop(){
  publish({...initialState});
 }
 async function start(message:any){
- await stop();seq=0;sampleStart=0;anchor=null;attempt=0;contextWall=0;config={...defaults,...message.config};glossary={version:message.glossary?.version??0,entries:validateGlossary(message.glossary?.entries??[])};captureScopeUrl=message.scopeUrl??'';token=message.token;sessionId=message.sessionId;epoch=0;revisions.reset(sessionId,epoch);translations.reset(sessionId,epoch);proofreader.reset(sessionId,epoch);video=message.video;
+ await stop();seq=0;sampleStart=0;anchor=null;attempt=0;contextWall=0;config={...defaults,...message.config};glossary={version:message.glossary?.version??0,entries:validateGlossary(message.glossary?.entries??[])};captureScopeUrl=message.scopeUrl??'';token=message.token;sessionId=message.sessionId;epoch=0;revisions.reset(sessionId,epoch);translations.reset(sessionId,epoch);liveTranslations.reset(sessionId,epoch);proofreader.reset(sessionId,epoch);video=message.video;
  try{
  stream=await navigator.mediaDevices.getUserMedia({audio:{mandatory:{chromeMediaSource:'tab',chromeMediaSourceId:message.streamId}} as MediaTrackConstraints,video:false});
  context=new AudioContext();await context.audioWorklet.addModule(chrome.runtime.getURL('worklet.js'));await context.resume();

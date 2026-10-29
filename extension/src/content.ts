@@ -88,6 +88,7 @@ if(!(globalThis as any)[sentinel]){
   if(message.kind==='config'){config={...defaults,...message.config};position();}
   if(message.kind==='seek'&&selected&&ids.get(selected)===message.id&&Number.isFinite(message.time)&&!info(selected).live&&info(selected).mediaUrl===message.mediaUrl){selected.currentTime=Math.max(0,message.time);}
   if(message.kind==='translation'&&enabled&&translationMatches(currentEvent,message.event,displayedTranslationRevision)){displayedTranslationRevision=message.event.translationRevision??1;targetLine.textContent=message.event.text===currentEvent.sourceText?'':subtitlePage(message.event.text).text;position();}
+  if(message.kind==='interim-translation'&&enabled&&currentEvent?.phase==='interim'&&currentEvent.sessionId===message.event.sessionId&&currentEvent.epoch===message.event.epoch&&currentEvent.segmentId===message.event.segmentId&&subtitlePage(currentEvent.displaySourceText??currentEvent.sourceText).index===message.event.pageIndex){targetLine.textContent=message.event.text===message.event.pageText?'':subtitlePage(message.event.text).text;position();}
   if(message.kind==='select'){
    if(message.sessionId&&(sessionId!==message.sessionId||epoch!==message.epoch)){sessionId=message.sessionId;epoch=message.epoch;gate.reset(sessionId,epoch);clearText();currentEvent=undefined;}
    frameId=message.frameId??0;config={...defaults,...message.config};
@@ -98,7 +99,9 @@ if(!(globalThis as any)[sentinel]){
   if(message.kind==='epoch'){sessionId=message.sessionId;epoch=message.epoch;gate.reset(sessionId,epoch);pageCaptionText='';pageCaptionAt=0;pendingCaptionText='';pageCaptionRevisions.reset();clearTimeout(pageCaptionTimer);clearText();currentEvent=undefined;}
   if(message.kind==='clear'){enabled=false;sessionId='';clearTimeout(pageCaptionTimer);pageCaptionText='';pendingCaptionText='';pageCaptionRevisions.reset();clearText();host.remove();}
   if(message.kind==='subtitle'&&enabled&&gate.accept(message.event)){
-   const event=message.event;currentEvent=event;sourceLine.textContent=subtitlePage(event.displaySourceText??displaySource(event.sourceText,event.phase,event.splitReason)).text;targetLine.textContent='';displayedTranslationRevision=0;position();
+   const event=message.event,previous=currentEvent;currentEvent=event;sourceLine.textContent=subtitlePage(event.displaySourceText??displaySource(event.sourceText,event.phase,event.splitReason)).text;
+   if(event.phase!=='interim'||previous?.phase!=='interim'||previous.segmentId!==event.segmentId||!event.sourceText.startsWith(previous.sourceText))targetLine.textContent='';
+   displayedTranslationRevision=0;position();
    renderAndConfirm(()=>currentEvent===event&&host.isConnected&&!text.hidden&&document.visibilityState==='visible'&&overlayVisible(document.fullscreenElement instanceof HTMLVideoElement,host.getBoundingClientRect(),innerWidth,innerHeight)&&overlayVisible(false,text.getBoundingClientRect(),innerWidth,innerHeight),()=>{void send('background','rendered',{event:{type:'rendered',sessionId:event.sessionId,epoch:event.epoch,segmentId:event.segmentId,revision:event.revision,renderedAt:Date.now(),hasTranslation:false}});});
   }
   reply({ok:true});

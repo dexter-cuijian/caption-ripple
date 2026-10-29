@@ -26,6 +26,21 @@ test('history hides older cumulative page-caption rows already stored with separ
  expect(await history.allHistory('legacy-page')).toHaveLength(1);
  await history.closeHistory();
 });
+test('live interim source is visible in history and later final replaces the same row',async()=>{
+ const history=await import('../src/history');
+ const interim={...row('live',1),sessionId:'live-source',phase:'interim',sourceText:'THIS IS A LONG LIVE UTTERANCE'};
+ await history.saveInterim(interim);
+ let result=await history.queryHistory({session:'live-source'});
+ expect(result.total).toBe(1);expect(result.rows[0].sourceText).toBe(interim.sourceText);
+ expect(result.rows[0].translationState).toBe('transcribing');
+ await history.saveInterim({...interim,revision:2,sourceText:'THIS IS A LONG LIVE UTTERANCE NOW'});
+ await history.saveFinal({...interim,phase:'final',revision:3,sourceText:'This is a long live utterance now.'});
+ await history.saveInterim({...interim,revision:4,sourceText:'LATE INTERIM'});
+ result=await history.queryHistory({session:'live-source'});
+ expect(result.total).toBe(1);expect(result.rows[0].sourceText).toBe('This is a long live utterance now.');
+ expect(result.rows[0].translationState).toBe('pending');
+ await history.closeHistory();
+});
 test('compact current-page history filters by the active page URL and limits visible rows',async()=>{
  const history=await import('../src/history');
  for(let i=0;i<6;i++)await history.saveFinal({...row(`current-${i}`),sessionId:'compact',url:'https://example.com/news',createdAt:i+100});

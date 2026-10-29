@@ -60,6 +60,15 @@ test('late final translation persists but never pairs with a newer interim in li
  expect(runtimeMessages.some(message=>message.kind==='translation'&&message.event.text==='Old translation')).toBe(true);
  expect(runtimeMessages.filter(message=>message.kind==='state').at(-1).state.latestTranslation).toBe('');await command('stop');
 });
+test('English interim produces Chinese live translation before any final segment',async()=>{
+ vi.stubGlobal('Translator',{availability:async()=>'available',create:async()=>({translate:async()=> '这是实时中文译文',destroy:()=>{}})});
+ await start(undefined,{config:{sourceLanguage:'en',targetLanguage:'zh'}});sockets[0].open();vi.useFakeTimers();
+ sockets[0].onmessage({data:JSON.stringify({type:'subtitle',phase:'interim',sessionId:'session',epoch:0,segmentId:'live',revision:1,sourceText:'This is a sufficiently long English sentence',sourceLanguage:'en'})});
+ await vi.advanceTimersByTimeAsync(300);
+ expect(runtimeMessages.some(message=>message.kind==='interim-translation'&&message.event.text==='这是实时中文译文')).toBe(true);
+ expect(runtimeMessages.filter(message=>message.kind==='state').at(-1).state.latestTranslation).toBe('这是实时中文译文');
+ vi.useRealTimers();await command('stop');
+});
 
 test('hello hotwords and real offscreen draft path use scoped versioned names while preserving original source',async()=>{
  vi.stubGlobal('Translator',{availability:async()=>'available',create:async()=>({translate:async(text:string)=>text,destroy:()=>{}})});

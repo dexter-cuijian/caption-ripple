@@ -29,6 +29,25 @@ export class FinalTranslator{
  }}finally{if(generation===this.generation){this.busy=false;this.options.onWork?.(false);}}
  }
 }
+/** Translate the visible page of a growing ASR hypothesis without waiting for a final. */
+export class LiveTranslator{
+ private session='';private epoch=0;private latest:any;private timer:ReturnType<typeof setTimeout>|undefined;private controller=new AbortController();private busy=false;private lastAttempt=0;private lastText='';
+ constructor(private provider:TranslationProvider,private emit:(event:any)=>void,private failure:(error:string)=>void,private intervalMs=2500){}
+ reset(session:string,epoch:number){this.controller.abort();this.controller=new AbortController();clearTimeout(this.timer);this.timer=undefined;this.session=session;this.epoch=epoch;this.latest=undefined;this.busy=false;this.lastAttempt=0;this.lastText='';}
+ observe(event:any,targetLanguage:string,pageText:string,pageIndex:number){
+  if(event.phase!=='interim'||event.sessionId!==this.session||event.epoch!==this.epoch||pageText.trim().length<18)return;
+  this.latest={...event,targetLanguage,pageText,pageIndex};this.schedule();
+ }
+ finalize(event:any){if(this.latest?.segmentId===event.segmentId){this.latest=undefined;clearTimeout(this.timer);this.timer=undefined;}}
+ private schedule(){if(this.timer||this.busy||!this.latest)return;this.timer=setTimeout(()=>{this.timer=undefined;void this.run();},Math.max(300,this.lastAttempt+this.intervalMs-Date.now()));}
+ private async run(){const task=this.latest;if(!task||this.busy||task.pageText===this.lastText)return;this.busy=true;this.lastAttempt=Date.now();this.lastText=task.pageText;
+  const source=task.sourceLanguage==='auto'?(/[\u3400-\u9fff]/.test(task.pageText)?'zh':'en'):task.sourceLanguage;
+  try{const text=source===task.targetLanguage?task.pageText:await withDeadline(signal=>this.provider.translate(task.pageText,source,task.targetLanguage,signal),5000,this.controller.signal);
+   const current=this.latest;if(text?.trim()&&current&&current.sessionId===task.sessionId&&current.epoch===task.epoch&&current.segmentId===task.segmentId&&current.pageIndex===task.pageIndex&&current.sourceText.startsWith(task.sourceText))this.emit({...task,sourceRevision:task.revision,text,sourceLanguage:source});
+  }catch(error){if(!this.controller.signal.aborted)this.failure(String(error));}
+  finally{this.busy=false;if(this.latest&&this.latest.pageText!==this.lastText)this.schedule();}
+ }
+}
 export interface NativeTranslator{translate(text:string,options?:{signal?:AbortSignal}):Promise<string>;destroy():void}
 export interface TranslatorAPI{availability(options:{sourceLanguage:string;targetLanguage:string}):Promise<string>;create(options:{sourceLanguage:string;targetLanguage:string;monitor?:(monitor:any)=>void}):Promise<NativeTranslator>}
 export const translatorAPI=()=>(globalThis as any).Translator as TranslatorAPI|undefined;

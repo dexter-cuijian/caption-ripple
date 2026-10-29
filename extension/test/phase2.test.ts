@@ -1,6 +1,6 @@
-import{expect,test}from'vitest';
+import{expect,test,vi}from'vitest';
 import{mergeFinal,mergeTranslation,exportCaptions}from'../src/history';
-import{FinalTranslator,LanguageLock}from'../src/translation';
+import{FinalTranslator,LiveTranslator,LanguageLock}from'../src/translation';
 const row=(revision=1)=>({type:'subtitle',phase:'final',sessionId:'s',epoch:2,segmentId:'a',revision,sourceText:'没有增长20%',sourceLanguage:'zh',targetLanguage:'en',mediaTime:10,start:0,end:1,url:'https://example.com/news',title:'News',createdAt:1,engine:'test'});
 test('only finals persist; source revision monotonic and translation patches one exact row',()=>{
  expect(mergeFinal(undefined,{...row(),phase:'interim'})).toBeUndefined();
@@ -25,6 +25,19 @@ test('translator never sends interim and discards completion after epoch reset',
  translator.reset('s',2);translator.enqueue({...row(),phase:'interim'} as any,'en');expect(calls).toHaveLength(0);
  translator.enqueue(row() as any,'en');await Promise.resolve();expect(calls).toHaveLength(1);
  translator.reset('s',3);complete('stale');await new Promise(resolve=>setTimeout(resolve,0));expect(emitted).toHaveLength(0);
+});
+test('live translator batches growing English hypotheses and ignores a prior page after reset',async()=>{
+ vi.useFakeTimers();let finish:(text:string)=>void=()=>{};const calls:string[]=[],events:any[]=[];
+ const live=new LiveTranslator({translate:text=>{calls.push(text);return new Promise(resolve=>{finish=resolve;});}},event=>events.push(event),()=>{},2500);
+ const event=(revision:number,text:string)=>({phase:'interim',sessionId:'s',epoch:2,segmentId:'a',revision,sourceText:text,sourceLanguage:'en'});
+ live.reset('s',2);live.observe(event(1,'This is the first part of speech'),'zh','This is the first part of speech',0);
+ live.observe(event(2,'This is the first part of speech today'),'zh','This is the first part of speech today',0);
+ await vi.advanceTimersByTimeAsync(300);expect(calls).toEqual(['This is the first part of speech today']);
+ finish('这是今天讲话的第一部分');await vi.advanceTimersByTimeAsync(0);expect(events[0].text).toBe('这是今天讲话的第一部分');
+ live.observe(event(3,'This is a different sentence now'),'zh','This is a different sentence now',1);
+ await vi.advanceTimersByTimeAsync(2500);expect(calls).toHaveLength(2);
+ live.reset('s',3);finish('过期译文');await vi.advanceTimersByTimeAsync(0);expect(events).toHaveLength(1);
+ vi.useRealTimers();
 });
 test('new final revision supersedes pending translation with same identity',async()=>{
  const completions:Array<(s:string)=>void>=[],events:any[]=[];

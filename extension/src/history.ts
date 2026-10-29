@@ -1,5 +1,5 @@
 import type{TermMatch}from'./glossary';
-export interface CaptionRow{glossaryVersion?:number;matchedTerms?:TermMatch[];sessionId:string;epoch:number;segmentId:string;revision:number;sourceText:string;sourceRaw?:string;videoId?:string;mediaUrl?:string;documentId?:string;live?:boolean;proofreadingState?:string;proofreadingError?:string;translatedText?:string;translationRevision?:number;displaySourceText?:string;sourceLanguage:string;targetLanguage:string;mediaTime:number|null;start:number;end:number;url:string;title:string;createdAt:number;engine:string;translationEngine?:string;translationState?:string;translationError?:string;translationStartedAt?:number;translationCompletedAt?:number}
+export interface CaptionRow{phase?:string;glossaryVersion?:number;matchedTerms?:TermMatch[];sessionId:string;epoch:number;segmentId:string;revision:number;sourceText:string;sourceRaw?:string;videoId?:string;mediaUrl?:string;documentId?:string;live?:boolean;proofreadingState?:string;proofreadingError?:string;translatedText?:string;translationRevision?:number;displaySourceText?:string;sourceLanguage:string;targetLanguage:string;mediaTime:number|null;start:number;end:number;url:string;title:string;createdAt:number;engine:string;translationEngine?:string;translationState?:string;translationError?:string;translationStartedAt?:number;translationCompletedAt?:number}
 export interface TranslationEvent{glossaryVersion?:number;matchedTerms?:TermMatch[];type?:string;sessionId:string;epoch:number;segmentId:string;sourceRevision:number;translationRevision?:number;targetLanguage:string;text:string;engine?:string;phase?:string;startedAt?:number;completedAt?:number}
 export const rowKey=(row:Pick<CaptionRow,'sessionId'|'epoch'|'segmentId'>)=>[row.sessionId,row.epoch,row.segmentId];
 /** Hide legacy rows created while a single webpage caption was revealed word by word. */
@@ -16,6 +16,10 @@ export function mergeFinal(existing:CaptionRow|undefined,event:any):CaptionRow|u
  const {translatedText,translationRevision,translationEngine,translationError,translationStartedAt,translationCompletedAt,...source}=event;
  return{...source,translationError:event.translationState==='cancelled'?event.translationError:undefined,translationState:event.translationState??(event.targetLanguage===event.sourceLanguage?'same-language':'pending')};
 }
+export function mergeInterim(existing:CaptionRow|undefined,event:any):CaptionRow|undefined{
+ if(event.phase!=='interim'||!event.sourceText?.trim()||existing?.phase==='final'||existing&&existing.revision>=event.revision)return existing;
+ return{...event,translationState:'transcribing'};
+}
 export function mergeTranslation(row:CaptionRow|undefined,event:TranslationEvent):CaptionRow|undefined{
  if(!row||JSON.stringify(rowKey(row))!==JSON.stringify([event.sessionId,event.epoch,event.segmentId])||row.revision!==event.sourceRevision||row.targetLanguage!==event.targetLanguage||(row.glossaryVersion??0)!==(event.glossaryVersion??0))return row;
  const translationRevision=event.translationRevision??1;if((row.translationRevision??0)>=translationRevision)return row;
@@ -27,6 +31,7 @@ async function mutate(key:IDBValidKey,update:(existing:CaptionRow|undefined)=>Ca
  const database=await db();return new Promise<boolean>((resolve,reject)=>{let changed=false;const tx=database.transaction('captions','readwrite'),store=tx.objectStore('captions'),request=store.get(key);request.onsuccess=()=>{const previous=request.result;const value=update(previous);if(value&&value!==previous){store.put(value);changed=true;}};tx.oncomplete=()=>resolve(changed);tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error);});
 }
 export const saveFinal=(event:any)=>mutate(rowKey(event),existing=>mergeFinal(existing,event));
+export const saveInterim=(event:any)=>mutate(rowKey(event),existing=>mergeInterim(existing,event));
 export const saveTranslation=(event:TranslationEvent)=>mutate([event.sessionId,event.epoch,event.segmentId],row=>mergeTranslation(row,event));
 export const failTranslation=(event:any)=>mutate([event.sessionId,event.epoch,event.segmentId],row=>row&&row.revision===event.sourceRevision&&row.targetLanguage===event.targetLanguage&&!row.translatedText?{...row,translationState:'error',translationError:event.error}:row);
 export async function cancelPending(sessionId:string,epoch:number,reason:string){
