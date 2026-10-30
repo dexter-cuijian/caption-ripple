@@ -9,4 +9,6 @@ export function canSeekMedia(row:any,current:any,candidates:any[]=[]){
 export function captureResetReason(reason:string):string|undefined{
  return ['pause','seeking','ratechange','emptied'].includes(reason)?reason:undefined;
 }
+/** Pausing leaves the last caption visible so viewers can finish reading it. */
+export function retainCaptionOnReset(reason:string):boolean{return reason==='pause';}
 export function mediaLabel(row:any){const time=row.live?(row.start??0):row.mediaTime;if(time===null||!Number.isFinite(time))return'音频';const formatted=`${String(Math.floor(time/60)).padStart(2,'0')}:${String(Math.floor(time%60)).padStart(2,'0')}`;return row.live?`直播 +${formatted}`:formatted;}

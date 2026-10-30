@@ -5,6 +5,7 @@ import{correctRecognizedNames}from'./name-corrections';
 import {translationMatches}from'./render';
 import {FinalTranslator,LiveTranslator,translatorAPI,type NativeTranslator} from './translation';
 import {RevisionGate,terminalClose} from './core';
+import {retainCaptionOnReset} from './media';
 import {defaults, initialState,send, type Config,type VideoInfo} from './shared';
 let context:AudioContext|undefined,stream:MediaStream|undefined,source:MediaStreamAudioSourceNode|undefined,worklet:AudioWorkletNode|undefined,silent:GainNode|undefined,playback:GainNode|undefined;
 let socket:WebSocket|undefined,asrWorker:Worker|undefined,retry:ReturnType<typeof setTimeout>|undefined,active=false,accepted=false,attempt=0;
@@ -74,10 +75,10 @@ function receiveSubtitle(data:any){
 function reset(reason:string){
  pageCaptionMode=false;pageCaptionUntil=0;liveTranslations.reset(sessionId,epoch+1);
  latestSource=undefined;const previousEpoch=epoch;epoch++;revisions.reset(sessionId,epoch);translations.reset(sessionId,epoch);proofreader.reset(sessionId,epoch);seq=0;sampleStart=0;anchor=null;browserOutstanding=0;accepted=false;
- publish({latestText:'',latestCaption:undefined,latestTranslation:'',translationError:undefined,latestTranslationRevision:0,latestDisplayText:'',message:reason});
+ publish(retainCaptionOnReset(reason)?{message:reason}:{latestText:'',latestCaption:undefined,latestTranslation:'',translationError:undefined,latestTranslationRevision:0,latestDisplayText:'',message:reason});
  if(socket?.readyState===WebSocket.OPEN)socket.send(JSON.stringify({type:'reset',sessionId,epoch,mediaTime:video?.currentTime??null,sourceLanguage:config.sourceLanguage,hotwords:hotwordsFor(glossary.entries,config.sourceLanguage,scopeUrl()),reason}));
  asrWorker?.postMessage({kind:'reset',sessionId,epoch});
- void send('background','epoch',{sessionId,epoch,previousEpoch}).catch(()=>{});
+ void send('background','epoch',{sessionId,epoch,previousEpoch,reason}).catch(()=>{});
 }
 function connectBrowser(){
  publish({phase:'connecting',message:'正在加载扩展内语音模型（首次可能需要较长时间）',asrEngine:'sherpa-onnx/wasm-zipformer-zh-en'});

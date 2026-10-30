@@ -5,6 +5,7 @@ import {activeCue,type ImportedCue} from './subtitle-import';
 import {renderAndConfirm,overlayVisible,translationMatches} from './render';
 import {defaults,send,type Config,type VideoInfo} from './shared';
 import {typewriterStep,liveSubtitleText} from './typewriter';
+import {retainCaptionOnReset} from './media';
 const sentinel='__localCaptionInstalled';
 if(!(globalThis as any)[sentinel]){
  (globalThis as any)[sentinel]=true;
@@ -122,7 +123,7 @@ if(!(globalThis as any)[sentinel]){
   if(message.kind==='import-subtitles'){importedCues=message.cues;importedVideoId=message.videoId;importedCueIndex=-2;captureImportedCue();}
   if(message.kind==='clear-import'){importedCues=undefined;importedVideoId='';importedCueIndex=-2;clearText();position();}
   if(message.kind==='clear-import-cue'){clearText();position();}
-  if(message.kind==='epoch'){sessionId=message.sessionId;epoch=message.epoch;gate.reset(sessionId,epoch);pageCaptionText='';pageCaptionAt=0;pendingCaptionText='';pageCaptionRevisions.reset();clearTimeout(pageCaptionTimer);clearText();currentEvent=undefined;}
+  if(message.kind==='epoch'){sessionId=message.sessionId;epoch=message.epoch;gate.reset(sessionId,epoch);pageCaptionText='';pageCaptionAt=0;pendingCaptionText='';pageCaptionRevisions.reset();clearTimeout(pageCaptionTimer);if(!retainCaptionOnReset(message.reason)){clearText();currentEvent=undefined;}else position();}
   if(message.kind==='clear'){enabled=false;sessionId='';importedCues=undefined;importedVideoId='';importedCueIndex=-2;clearTimeout(pageCaptionTimer);pageCaptionText='';pendingCaptionText='';pageCaptionRevisions.reset();clearText();host.remove();}
   if(message.kind==='subtitle'&&enabled&&(message.event.engine==='subtitle-import'||gate.accept(message.event))){
    const event=message.event,previous=currentEvent;currentEvent=event;
