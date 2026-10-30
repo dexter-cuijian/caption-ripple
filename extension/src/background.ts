@@ -1,5 +1,5 @@
 import{emptyGlossary}from'./glossary';
-import{canSeekMedia,captureResetReason,retainCaptionOnReset}from'./media';
+import{canSeekMedia,captureResetReason,retainCaptionOnReset,pageMediaMetadata}from'./media';
 import {VideoRegistry} from './registry';
 import {saveFinal,saveInterim,saveTranslation,failTranslation,cancelPending,retireInterims,persistReceivedFinal,markProofreading}from'./history';
 import {defaults,initialState,requiresCompanionToken,send,type Config,type State} from './shared';
@@ -130,7 +130,7 @@ chrome.runtime.onMessage.addListener((message,sender,reply)=>{
   if(message.kind==='subtitle'&&message.event.sessionId===state.sessionId&&message.event.epoch===state.epoch){
    const event=message.event,media=state.video,pageUrl=state.captureUrl,pageTitle=state.captureTitle;
    const isCurrent=()=>event.sessionId===state.sessionId&&event.epoch===state.epoch&&state.phase!=='idle'&&!retired.has(epochKey(event.sessionId,event.epoch));
-   const metadata=async()=>{const config=await chrome.storage.sync.get(defaults);return{targetLanguage:event.targetLanguage??config.targetLanguage,url:media?.url||pageUrl||'',title:media?.title||pageTitle||'',videoId:media?.id,mediaUrl:media?.mediaUrl,documentId:media?.documentId,live:media?.live};};
+   const metadata=async()=>{const config=await chrome.storage.sync.get(defaults);return{targetLanguage:event.targetLanguage??config.targetLanguage,...pageMediaMetadata(pageUrl,pageTitle,media)};};
    if(event.phase==='final'){interimSavedAt.delete(`${event.sessionId}:${event.epoch}:${event.segmentId}`);await persistReceivedFinal(event,metadata,isCurrent,()=>broadcast('subtitle',{event}));}
    else if(isCurrent()){await broadcast('subtitle',{event});const key=`${event.sessionId}:${event.epoch}:${event.segmentId}`,now=Date.now();if(event.sourceText?.trim().length>=8&&(now-(interimSavedAt.get(key)??-Infinity)>=1500)){interimSavedAt.set(key,now);const write=metadata().then(data=>isCurrent()?saveInterim({...event,...data}):false).catch(()=>{});interimWrites.add(write);void write.finally(()=>interimWrites.delete(write));}}
   }
@@ -140,7 +140,7 @@ chrome.runtime.onMessage.addListener((message,sender,reply)=>{
   if(message.kind==='retry-history'){const row=message.row;await offscreen();const {token}=await chrome.storage.local.get('token');const result=await send('offscreen','translate-history',{row,token});if(!result.ok)throw new Error(result.error);await saveTranslation(result.event);return{ok:true};}
   if(message.kind==='translation-failed')await failTranslation(message.event);
   if(message.kind==='seek'){
-   const row=message.row;if(!canSeekMedia(row,state.video,videos.candidates()))throw new Error('无法安全跳转：直播、媒体来源不匹配或播放器身份不唯一');
+   const row=message.row;if(!canSeekMedia(row,state.video,videos.candidates(),state.captureUrl))throw new Error('无法安全跳转：直播、媒体来源不匹配或播放器身份不唯一');
    await chrome.tabs.sendMessage(state.tabId!,{target:'content',kind:'seek',id:state.video!.id,mediaUrl:row.mediaUrl,time:row.mediaTime},{frameId:state.video!.frameId??0});
   }
   if(message.kind==='page-location'&&sender.tab?.id===state.tabId&&sender.frameId===0)await pageLocation(message.url,message.title);
