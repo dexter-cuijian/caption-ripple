@@ -11,7 +11,7 @@ export class BrowserAsrSession {
   const samples=Float32Array.from(pcm,value=>value/32768);let power=0,peak=0;
   for(const value of samples){power+=value*value;peak=Math.max(peak,Math.abs(value));}
   const rms=Math.sqrt(power/Math.max(1,samples.length));if(rms<=.00002||!samples.length)return samples;
-  const desired=Math.max(.05,Math.min(256,.05/rms,.98/peak));
+  const desired=Math.max(.05,Math.min(256,.16/rms,.98/peak));
   if(!this.gainReady){this.gain=desired;this.gainReady=true;}else{const tau=desired<this.gain ? .02 : .5;this.gain+=(desired-this.gain)*(1-Math.exp(-samples.length/16000/tau));}
   this.gain=Math.max(.05,Math.min(256,this.gain,.98/peak));
   return Float32Array.from(samples,value=>Math.max(-.98,Math.min(.98,value*this.gain)));

@@ -34,3 +34,13 @@ test('reset retires old text and never emits a fabricated empty final',()=>{
  expect(session.accept(new Int16Array(1600),{capturedAt:1100,mediaTime:null})).toEqual([]);
  expect(recognizer.resets).toBe(2);
 });
+
+test('quiet browser audio is lifted for the bilingual model without clipping the analysis stream',()=>{
+ const recognizer=new Recognizer(),session=new BrowserAsrSession(recognizer);
+ const quiet=new Int16Array(1600).fill(328);
+ session.accept(quiet,{capturedAt:1000,mediaTime:null});
+ expect(recognizer.accepted[0][0]).toBeGreaterThan(.12);
+ const loud=new Int16Array(1600).fill(32000);
+ session.accept(loud,{capturedAt:1100,mediaTime:null});
+ expect(Math.max(...recognizer.accepted[1])).toBeLessThanOrEqual(.98);
+});
