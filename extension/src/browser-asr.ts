@@ -8,13 +8,14 @@ export class BrowserAsrSession {
  private stream:Stream;private gain=1;private gainReady=false;private segment=0;private revision=0;private last='';private speechStart:number|null=null;private origin:number|null=null;
  constructor(private recognizer:Recognizer){this.stream=recognizer.createStream();}
  private normalize(pcm:Int16Array){
-  const samples=Float32Array.from(pcm,value=>value/32768);let power=0,peak=0;
-  for(const value of samples){power+=value*value;peak=Math.max(peak,Math.abs(value));}
+  const samples=new Float32Array(pcm.length);let power=0,peak=0;
+  for(let index=0;index<pcm.length;index++){const value=pcm[index]/32768;samples[index]=value;power+=value*value;peak=Math.max(peak,Math.abs(value));}
   const rms=Math.sqrt(power/Math.max(1,samples.length));if(rms<=.00002||!samples.length)return samples;
   const desired=Math.max(.05,Math.min(256,.16/rms,.98/peak));
   if(!this.gainReady){this.gain=desired;this.gainReady=true;}else{const tau=desired<this.gain ? .02 : .5;this.gain+=(desired-this.gain)*(1-Math.exp(-samples.length/16000/tau));}
   this.gain=Math.max(.05,Math.min(256,this.gain,.98/peak));
-  return Float32Array.from(samples,value=>Math.max(-.98,Math.min(.98,value*this.gain)));
+  for(let index=0;index<samples.length;index++)samples[index]=Math.max(-.98,Math.min(.98,samples[index]*this.gain));
+  return samples;
  }
  accept(pcm:Int16Array,clock:AsrClock):AsrEvent[]{
   this.origin??=clock.capturedAt-pcm.length/16;

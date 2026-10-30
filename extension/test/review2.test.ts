@@ -55,6 +55,14 @@ test('English all-caps ASR is sentence-cased for display while source remains un
  expect(raw).toBe('THIS IS A TOUCH SCREEN. I THINK IT WORKS');
  expect(displaySource('MacBook ProLED is here','interim')).toBe('MacBook ProLED is here');
 });
+test('long Chinese final gains conservative display commas without changing words',()=>{
+ const raw='调查的时间是十月十四号到十六号所以这一份民调很重要不过我们还要看投票结果';
+ const shown=displaySource(raw,'final','duration');
+ expect(shown).toBe('调查的时间是十月十四号到十六号，所以这一份民调很重要，不过我们还要看投票结果，');
+ expect(shown.replace(/[，。！？、]/g,'')).toBe(raw);
+ expect(displaySource(raw,'interim')).toBe('调查的时间是十月十四号到十六号，所以这一份民调很重要，不过我们还要看投票结果');
+ expect(displaySource('这一次公布的结果呢我们还要继续观察','interim')).toBe('这一次公布的结果呢，我们还要继续观察');
+});
 import{correctionSafe}from'../src/providers';
 test('proofreading guard rejects dropped negation/numbers and missing comparative structure',()=>{
  expect(correctionSafe('没有增长20%','Growth of 20%.','en')).toBe(false);expect(correctionSafe('没有增长20%','Did not grow by 30%.','en')).toBe(false);

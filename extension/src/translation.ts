@@ -42,7 +42,8 @@ export class LiveTranslator{
  private schedule(){if(this.timer||this.busy||!this.latest)return;this.timer=setTimeout(()=>{this.timer=undefined;void this.run();},Math.max(300,this.lastAttempt+this.intervalMs-Date.now()));}
  private async run(){const task=this.latest;if(!task||this.busy||task.pageText===this.lastText)return;this.busy=true;this.lastAttempt=Date.now();this.lastText=task.pageText;
   const source=task.sourceLanguage==='auto'?(/[\u3400-\u9fff]/.test(task.pageText)?'zh':'en'):task.sourceLanguage;
-  try{const text=source===task.targetLanguage?task.pageText:await withDeadline(signal=>this.provider.translate(task.pageText,source,task.targetLanguage,signal),5000,this.controller.signal);
+  try{if(source===task.targetLanguage)return;
+   const text=await withDeadline(signal=>this.provider.translate(task.pageText,source,task.targetLanguage,signal),5000,this.controller.signal);
    const current=this.latest;if(text?.trim()&&current&&current.sessionId===task.sessionId&&current.epoch===task.epoch&&current.segmentId===task.segmentId&&current.pageIndex===task.pageIndex&&current.sourceText.startsWith(task.sourceText))this.emit({...task,sourceRevision:task.revision,text,sourceLanguage:source});
   }catch(error){if(!this.controller.signal.aborted)this.failure(String(error));}
   finally{this.busy=false;if(this.latest&&this.latest.pageText!==this.lastText)this.schedule();}

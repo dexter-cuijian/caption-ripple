@@ -1,6 +1,7 @@
 import {beforeEach,expect,test,vi} from 'vitest';
 import {EventEmitter}from'node:events';
 import {Session}from'../../server/session.mjs';
+import{defaults}from'../src/shared';
 let runtimeMessages:any[]=[],translateFinish:((value:any)=>void)|undefined;
 let listener:any,failModule=false,contexts:any[],tracks:any[],sockets:any[],nodes:any[],workers:any[];
 class FakeSocket {
@@ -20,6 +21,15 @@ beforeEach(async()=>{
  vi.stubGlobal('AudioContext',FakeContext);vi.stubGlobal('AudioWorkletNode',FakeNode);vi.stubGlobal('WebSocket',FakeSocket);
  vi.stubGlobal('Worker',class {onmessage:any;onerror:any;messages:any[]=[];terminate=vi.fn();constructor(public url:string){workers.push(this);}postMessage(message:any){this.messages.push(message);} });
  await import('../src/offscreen');
+});
+test('muted output keeps the analysis branch connected and can be switched live',async()=>{
+ await start({currentTime:0,observedAt:Date.now(),playbackRate:1,paused:false},{config:{recognitionEngine:'browser',muteOutput:true}});
+ const source=nodes[0],analysis=nodes.find(node=>node.port.onmessage),gains=nodes.filter(node=>'gain'in node);
+ expect(source.connect).toHaveBeenCalledWith(analysis);
+ expect(gains.map(node=>node.gain.value)).toEqual([0,0]);
+ await command('config',{config:{...defaults,muteOutput:false}});
+ expect(gains[0].gain.value).toBe(1);
+ await command('stop');
 });
 test('browser mode starts without a socket and routes worker source through existing subtitle pipeline',async()=>{
  await start({currentTime:1,observedAt:Date.now(),playbackRate:1,paused:false},{config:{recognitionEngine:'browser',targetLanguage:'zh'}});

@@ -10,6 +10,23 @@ test('only finals persist; source revision monotonic and translation patches one
  expect(mergeTranslation(translated,{sessionId:'s',epoch:1,segmentId:'a',sourceRevision:1,targetLanguage:'en',text:'stale'})).toEqual(translated);
  expect(mergeFinal(translated,row(2))?.translatedText).toBeUndefined();
 });
+test('same-language recognition keeps one source line without a duplicate translation',()=>{
+ const source=mergeFinal(undefined,{...row(),sourceLanguage:'auto',targetLanguage:'zh'})!;
+ const updated=mergeTranslation(source,{sessionId:'s',epoch:2,segmentId:'a',sourceRevision:1,targetLanguage:'zh',text:source.sourceText,engine:'same-language',startedAt:1,completedAt:2})!;
+ expect(updated.translationState).toBe('same-language');
+ expect(updated.translatedText).toBeUndefined();
+ expect(exportCaptions([updated],'txt').trim()).toBe(source.sourceText);
+ const legacy={...source,translatedText:source.sourceText,translationState:'complete'};
+ expect(exportCaptions([legacy],'srt').split(source.sourceText)).toHaveLength(2);
+});
+test('same-language interim does not emit a fake live translation',async()=>{
+ vi.useFakeTimers();const emitted:any[]=[];let calls=0;
+ const live=new LiveTranslator({translate:async()=>{calls++;return'wrong';}},event=>emitted.push(event),()=>{},300);
+ live.reset('s',2);live.observe({...row(),phase:'interim',sourceLanguage:'auto'} as any,'zh','这是正在识别的一段中文新闻内容',0);
+ await vi.advanceTimersByTimeAsync(300);
+ expect(calls).toBe(0);expect(emitted).toHaveLength(0);
+ vi.useRealTimers();
+});
 test('exports escape timestamps correctly and include source and translation',()=>{
  const rows=[{...row(),translatedText:'No growth of 20%',start:1.25,end:3.5}];
  expect(exportCaptions(rows as any,'srt')).toContain('00:00:01,250 --> 00:00:03,500');

@@ -6,7 +6,7 @@ import {translationMatches}from'./render';
 import {FinalTranslator,LiveTranslator,translatorAPI,type NativeTranslator} from './translation';
 import {RevisionGate,terminalClose} from './core';
 import {defaults, initialState,send, type Config,type VideoInfo} from './shared';
-let context:AudioContext|undefined,stream:MediaStream|undefined,source:MediaStreamAudioSourceNode|undefined,worklet:AudioWorkletNode|undefined,silent:GainNode|undefined;
+let context:AudioContext|undefined,stream:MediaStream|undefined,source:MediaStreamAudioSourceNode|undefined,worklet:AudioWorkletNode|undefined,silent:GainNode|undefined,playback:GainNode|undefined;
 let socket:WebSocket|undefined,asrWorker:Worker|undefined,retry:ReturnType<typeof setTimeout>|undefined,active=false,accepted=false,attempt=0;
 let sessionId='',epoch=0,seq=0,sampleStart=0,anchor:number|null=null,contextWall=0,browserOutstanding=0;
 let latestSource:any;let glossary:GlossaryState=emptyGlossary,captureScopeUrl='';
@@ -123,8 +123,8 @@ async function stop(){
  latestSource=undefined;active=false;accepted=false;clearTimeout(retry);translations.reset('',-1);liveTranslations.reset('',-1);proofreader.reset('',-1);
  if(socket?.readyState===WebSocket.OPEN)socket.send(JSON.stringify({type:'stop',sessionId,epoch}));socket?.close();socket=undefined;asrWorker?.terminate();asrWorker=undefined;
  if(worklet)worklet.port.onmessage=null;
- for(const node of [worklet,source,silent])try{node?.disconnect();}catch{}
- stream?.getTracks().forEach(t=>t.stop());
+ for(const node of [worklet,source,silent,playback])try{node?.disconnect();}catch{}
+ stream?.getTracks().forEach(t=>t.stop());playback=undefined;
  if(context){context.onstatechange=null;try{await context.close();}catch{}}context=undefined;stream=undefined;worklet=undefined;source=undefined;silent=undefined;
  publish({...initialState});
 }
@@ -136,8 +136,8 @@ async function start(message:any){
  context.onstatechange=()=>publish({contextState:context?.state??'none'});
  contextWall=Date.now()-context.currentTime*1000;
  source=context.createMediaStreamSource(stream);
- // Pass-through is independent of WebSocket and the analysis branch.
- source.connect(context.destination);
+ // The output gain can mute speakers without muting the captured analysis branch.
+ playback=context.createGain();playback.gain.value=config.muteOutput?0:1;source.connect(playback);playback.connect(context.destination);
  worklet=new AudioWorkletNode(context,'capture-16k');silent=context.createGain();silent.gain.value=0;
  source.connect(worklet);worklet.connect(silent);silent.connect(context.destination);
  worklet.port.onmessage=({data})=>{
@@ -174,7 +174,7 @@ chrome.runtime.onMessage.addListener((message,_sender,reply)=>{
   if(message.kind==='translate-history'){if(message.token)token=message.token;const row=message.row;const source=row.sourceLanguage==='auto'?(/[\u3400-\u9fff]/.test(row.sourceText)?'zh':'en'):row.sourceLanguage;const startedAt=Date.now();try{const text=await withDeadline(signal=>translateDraft(row.sourceText,source,row.targetLanguage,signal,{entries:(row.matchedTerms??[]).map((match:any)=>match.entry),url:row.url}),8000);return{ok:true,event:{type:'translation',sessionId:row.sessionId,epoch:row.epoch,segmentId:row.segmentId,sourceRevision:row.revision,translationRevision:(row.translationRevision??0)+1,targetLanguage:row.targetLanguage,glossaryVersion:row.glossaryVersion,matchedTerms:row.matchedTerms,text,engine:draftEngine,startedAt,completedAt:Date.now()}};}catch(error){return{ok:false,error:String(error)};}}
   if(message.kind==='glossary'){const next={version:message.glossary?.version??0,entries:validateGlossary(message.glossary?.entries??[])};const changed=next.version!==glossary.version;glossary=next;if(changed&&active)reset('术语表版本已更新，开始新识别段');}
   if(message.kind==='retry-translation'){translations.retry();}
-  if(message.kind==='config'){const changed=config.sourceLanguage!==message.config.sourceLanguage||config.targetLanguage!==message.config.targetLanguage||config.translationEngine!==message.config.translationEngine||config.proofreading!==message.config.proofreading;config={...defaults,...message.config};if(changed&&active)reset('语言或翻译引擎设置已更新');}
+  if(message.kind==='config'){const changed=config.sourceLanguage!==message.config.sourceLanguage||config.targetLanguage!==message.config.targetLanguage||config.translationEngine!==message.config.translationEngine||config.proofreading!==message.config.proofreading;config={...defaults,...message.config};if(playback)playback.gain.value=config.muteOutput?0:1;if(changed&&active)reset('语言或翻译引擎设置已更新');}
   if(message.kind==='start')await start(message);
   if(message.kind==='stop')await stop();
   if(message.kind==='page-location'&&/^https?:\/\//.test(message.url)&&message.url!==captureScopeUrl){captureScopeUrl=message.url;video=undefined;if(active)reset('页面地址已更新，重新应用当前范围术语');}
