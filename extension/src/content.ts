@@ -1,6 +1,7 @@
 import {subtitlePage,displaySource}from'./display';
 import {RevisionGate} from './core';
 import {PageCaptionRevisions} from './page-captions';
+import {activeCue,type ImportedCue} from './subtitle-import';
 import {renderAndConfirm,overlayVisible,translationMatches} from './render';
 import {defaults,send,type Config,type VideoInfo} from './shared';
 const sentinel='__localCaptionInstalled';
@@ -14,6 +15,7 @@ if(!(globalThis as any)[sentinel]){
  const ids=new WeakMap<HTMLVideoElement,string>(),observed=new WeakSet<HTMLVideoElement>();
  let pageCaptionText='',pageCaptionAt=0,pendingCaptionText='',pageCaptionTimer:ReturnType<typeof setTimeout>|undefined;
  const pageCaptionRevisions=new PageCaptionRevisions();
+ let importedCues:ImportedCue[]|undefined,importedVideoId='',importedCueIndex=-2;
  let lastUrl=location.href;let pending=false;let currentEvent:any;let displayedTranslationRevision=0;
  const host=document.createElement('div');host.id='local-caption-host';
  const shadow=host.attachShadow({mode:'closed'});const text=document.createElement('div');text.setAttribute('role','status');text.setAttribute('aria-live','polite');
@@ -54,7 +56,7 @@ if(!(globalThis as any)[sentinel]){
   return null;
  }
  function capturePageCaption(){
-  if(!ownsPage()||!enabled||!selected||!sessionId)return;
+  if(!ownsPage()||!enabled||!selected||!sessionId||importedCues)return;
   const caption=visiblePageCaption();if(!caption)return;
   if(caption.text===pageCaptionText&&Date.now()-pageCaptionAt<3000)return;
   if(caption.text===pendingCaptionText)return;
@@ -73,9 +75,17 @@ if(!(globalThis as any)[sentinel]){
   const items=[...document.querySelectorAll('video')];
   for(const v of items)if(!observed.has(v)){
    observed.add(v);
-   for(const event of ['pause','playing','seeking','ratechange','emptied'])v.addEventListener(event,()=>{if(ownsPage()&&selected===v)void send('background','video-event',{video:info(v),reason:event});});
+   for(const event of ['pause','playing','seeking','seeked','ratechange','emptied'])v.addEventListener(event,()=>{if(ownsPage()&&selected===v){void send('background','video-event',{video:info(v),reason:event});captureImportedCue();}});
+   v.addEventListener('timeupdate',()=>{if(ownsPage()&&selected===v)captureImportedCue();});
   }
-  void send('background','videos',{videos:items.map(info).filter(v=>v.area>0)}).catch(()=>{});position();capturePageCaption();
+  void send('background','videos',{videos:items.map(info).filter(v=>v.area>0)}).catch(()=>{});position();capturePageCaption();captureImportedCue();
+ }
+ function captureImportedCue(){
+  if(!importedCues||!selected||!enabled||!sessionId||ids.get(selected)!==importedVideoId)return;
+  const current=activeCue(importedCues,selected.currentTime),index=current?.index??-1;
+  if(index===importedCueIndex)return;
+  importedCueIndex=index;
+  void send('background','import-cue',{videoId:importedVideoId,index,mediaTime:selected.currentTime}).catch(()=>{});
  }
  function schedule(){if(!pending){pending=true;requestAnimationFrame(()=>{pending=false;scan();});}}
  const observer=new MutationObserver(records=>{if(!ownsPage()){observer.disconnect();host.remove();return;}if(records.some(r=>[...r.addedNodes].some(n=>n instanceof Element&&(n.tagName==='IFRAME'||n.querySelector('iframe')))))void send('background','frames-changed').catch(()=>{});if(records.some(r=>r.target!==host&&!shadow.contains(r.target)))schedule();});observer.observe(document.documentElement,{childList:true,subtree:true});
@@ -92,13 +102,16 @@ if(!(globalThis as any)[sentinel]){
   if(message.kind==='select'){
    if(message.sessionId&&(sessionId!==message.sessionId||epoch!==message.epoch)){sessionId=message.sessionId;epoch=message.epoch;gate.reset(sessionId,epoch);clearText();currentEvent=undefined;}
    frameId=message.frameId??0;config={...defaults,...message.config};
-   const next=[...document.querySelectorAll('video')].find(v=>ids.get(v)===message.id);if(next!==selected){pageCaptionText='';pageCaptionAt=0;pendingCaptionText='';pageCaptionRevisions.reset();clearTimeout(pageCaptionTimer);}selected=next;
+   const next=[...document.querySelectorAll('video')].find(v=>ids.get(v)===message.id);if(next!==selected){pageCaptionText='';pageCaptionAt=0;pendingCaptionText='';pageCaptionRevisions.reset();clearTimeout(pageCaptionTimer);importedCueIndex=-2;}selected=next;
    // Only the selected frame renders; top frame is the audio-only/cross-origin fallback.
    enabled=!!selected||(!message.id&&window===window.top);position();capturePageCaption();
   }
+  if(message.kind==='import-subtitles'){importedCues=message.cues;importedVideoId=message.videoId;importedCueIndex=-2;captureImportedCue();}
+  if(message.kind==='clear-import'){importedCues=undefined;importedVideoId='';importedCueIndex=-2;clearText();position();}
+  if(message.kind==='clear-import-cue'){clearText();position();}
   if(message.kind==='epoch'){sessionId=message.sessionId;epoch=message.epoch;gate.reset(sessionId,epoch);pageCaptionText='';pageCaptionAt=0;pendingCaptionText='';pageCaptionRevisions.reset();clearTimeout(pageCaptionTimer);clearText();currentEvent=undefined;}
-  if(message.kind==='clear'){enabled=false;sessionId='';clearTimeout(pageCaptionTimer);pageCaptionText='';pendingCaptionText='';pageCaptionRevisions.reset();clearText();host.remove();}
-  if(message.kind==='subtitle'&&enabled&&gate.accept(message.event)){
+  if(message.kind==='clear'){enabled=false;sessionId='';importedCues=undefined;importedVideoId='';importedCueIndex=-2;clearTimeout(pageCaptionTimer);pageCaptionText='';pendingCaptionText='';pageCaptionRevisions.reset();clearText();host.remove();}
+  if(message.kind==='subtitle'&&enabled&&(message.event.engine==='subtitle-import'||gate.accept(message.event))){
    const event=message.event,previous=currentEvent;currentEvent=event;sourceLine.textContent=subtitlePage(event.displaySourceText??displaySource(event.sourceText,event.phase,event.splitReason)).text;
    if(event.phase!=='interim'||previous?.phase!=='interim'||previous.segmentId!==event.segmentId||!event.sourceText.startsWith(previous.sourceText))targetLine.textContent='';
    displayedTranslationRevision=0;position();

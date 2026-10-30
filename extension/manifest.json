@@ -34,7 +34,7 @@
     }
   },
   "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'self'; connect-src ws://127.0.0.1:* http://127.0.0.1:* ws://localhost:* http://localhost:*"
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'; connect-src ws://127.0.0.1:* http://127.0.0.1:* ws://localhost:* http://localhost:*"
   },
   "side_panel": {
     "default_path": "sidepanel.html"
