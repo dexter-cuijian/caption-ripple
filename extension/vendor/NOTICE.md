@@ -9,8 +9,9 @@ The separately downloaded `.data` package contains the bilingual streaming
 Zipformer encoder, decoder, joiner, tokens and a source README. The build README
 identifies the Sherpa release asset
 `sherpa-onnx-streaming-zipformer-bilingual-zh-en-2023-02-20` as its source.
-The original checkpoint is `pfluo/k2fsa-zipformer-chinese-english-mixed`,
-whose model card declares Apache-2.0. The package SHA-256 and source address
+The converted checkpoint is `csukuangfj/k2fsa-zipformer-chinese-english-mixed`,
+forked from `pfluo/k2fsa-zipformer-chinese-english-mixed`; both model cards
+declare Apache-2.0. The package SHA-256 and source address
 are pinned in `browser-model.lock.json`.
 
 The `.data` model is excluded from Git. Packaged extension builds include it so

@@ -48,6 +48,14 @@ async function offscreen(){
 async function broadcast(kind:string,extra:Record<string,unknown>={}){
  if(!state.tabId)return;await chrome.tabs.sendMessage(state.tabId,{target:'content',kind,...extra}).catch(()=>{});
 }
+async function injectCurrentPage(tabId:number){
+ try{
+  await chrome.scripting.executeScript({target:{tabId,allFrames:true},files:['content.js']}).catch(()=>chrome.scripting.executeScript({target:{tabId},files:['content.js']}));
+  if(tabId===state.tabId){state.pageAccessWarning=undefined;await broadcast('inspect');}
+ }catch{
+  if(tabId===state.tabId)state.pageAccessWarning='已切换网页，但无法注入视频字幕。请在当前页面点击工具栏中的 CaptionRipple 图标授权。';
+ }
+}
 async function sendImported(cues:ImportedCue[],video:NonNullable<State['video']>){
  if(!state.tabId)return;
  await chrome.tabs.sendMessage(state.tabId,{target:'content',kind:'import-subtitles',cues,videoId:video.id},{frameId:video.frameId??0});
@@ -105,7 +113,7 @@ async function importSubtitles(message:any){
  await sendImported(cues,state.video);
  return state;
 }
-chrome.action.onClicked.addListener(tab=>{if(tab.id)void chrome.sidePanel.open({tabId:tab.id});});
+chrome.action.onClicked.addListener(tab=>{if(tab.id){void chrome.sidePanel.open({tabId:tab.id});if(tab.id===state.tabId&&state.phase!=='idle')void injectCurrentPage(tab.id);}});
 chrome.runtime.onMessage.addListener((message,sender,reply)=>{
  if(message.target!=='background')return;
  (async()=>{
@@ -117,7 +125,7 @@ chrome.runtime.onMessage.addListener((message,sender,reply)=>{
   if(message.kind==='cancel-panel-translation'){const pending=pendingTranslations.get(message.requestId);if(pending){clearTimeout(pending.timer);pendingTranslations.delete(message.requestId);pending.resolve({ok:false,error:'翻译已取消'});panel?.postMessage({kind:'cancel-translation',id:message.requestId});}return{ok:true};}
   if(message.kind==='panel-translate')return await translateInPanel(message);
   if(message.kind==='retry-translation')return await send('offscreen','retry-translation');
-  if(message.kind==='state'&&!imported&&message.state?.sessionId===state.sessionId)state={...state,...message.state,tabId:state.tabId,video:state.video,videos:state.videos,captureUrl:state.captureUrl,captureTitle:state.captureTitle};
+  if(message.kind==='state'&&!imported&&message.state?.sessionId===state.sessionId)state={...state,...message.state,tabId:state.tabId,video:state.video,videos:state.videos,captureUrl:state.captureUrl,captureTitle:state.captureTitle,pageAccessWarning:state.pageAccessWarning};
   if(message.kind==='epoch'){retire(message.sessionId,message.previousEpoch??state.epoch);interimSavedAt.clear();cancelPanelTranslations('识别段重置，已取消旧翻译');await retireHistory(message.sessionId,message.previousEpoch??state.epoch,'识别段重置，已取消旧翻译');state.epoch=message.epoch;if(!retainCaptionOnReset(message.reason))state.latestTranslation='';await broadcast('epoch',{sessionId:message.sessionId,epoch:message.epoch,reason:message.reason});}
   if(message.kind==='subtitle'&&message.event.sessionId===state.sessionId&&message.event.epoch===state.epoch){
    const event=message.event,media=state.video,pageUrl=state.captureUrl,pageTitle=state.captureTitle;
@@ -162,4 +170,4 @@ chrome.runtime.onMessage.addListener((message,sender,reply)=>{
 });
 chrome.storage.onChanged.addListener((changes,area)=>{if(area==='local'&&changes.glossary)void send('offscreen','glossary',{glossary:changes.glossary.newValue??emptyGlossary}).catch(()=>{});if(area==='sync')void chrome.storage.sync.get(defaults).then(async config=>{await broadcast('config',{config});await send('offscreen','config',{config}).catch(()=>{});});});
 chrome.tabs.onRemoved.addListener(tabId=>{void ensureImportRestored().then(async()=>{if(tabId===state.tabId){retire(state.sessionId,state.epoch);cancelPanelTranslations('目标标签页已关闭');await retireHistory(state.sessionId,state.epoch,'目标标签页已关闭');await clearImport();void send('offscreen','stop');state={...initialState};}});});
-chrome.tabs.onUpdated.addListener((tabId,change)=>{void ensureImportRestored().then(()=>{if(tabId===state.tabId&&change.url)void pageLocation(change.url);if(tabId===state.tabId&&change.status==='loading'){videos.clear();manual=false;void choose();}if(tabId===state.tabId&&change.status==='complete'&&state.phase!=='idle')void chrome.scripting.executeScript({target:{tabId,allFrames:true},files:['content.js']}).catch(()=>{});});});
+chrome.tabs.onUpdated.addListener((tabId,change)=>{void ensureImportRestored().then(()=>{if(tabId===state.tabId&&change.url)void pageLocation(change.url);if(tabId===state.tabId&&change.status==='loading'){videos.clear();manual=false;void choose();}if(tabId===state.tabId&&change.status==='complete'&&state.phase!=='idle')void injectCurrentPage(tabId);});});

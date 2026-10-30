@@ -8,6 +8,7 @@ import{queryHistory,closeHistory,visibleTranslation,type CaptionRow}from'./histo
 import{compactHistory}from'./compact-history';
 import{translatorAPI,type NativeTranslator}from'./translation';
 import{typewriterStep,liveSubtitleText}from'./typewriter';
+import{mediaLabel}from'./media';
 import'./sidepanel.css';
 function useTypedText(target:string,identity:string){
  const[shown,setShown]=useState(''),current=useRef(''),lastIdentity=useRef(identity);
@@ -23,7 +24,7 @@ function CompactRow({row}:{row:CaptionRow}){
  const[expanded,setExpanded]=useState(false);
  const source=displaySource(row.displaySourceText??row.sourceText,'interim');
  const preview=row.phase==='interim'?subtitlePage(source).text:source;
- const time=row.mediaTime==null?new Date(row.createdAt).toLocaleTimeString():`${Math.floor(row.mediaTime/60).toString().padStart(2,'0')}:${Math.floor(row.mediaTime%60).toString().padStart(2,'0')}`;
+ const time=row.mediaTime==null?new Date(row.createdAt).toLocaleTimeString():mediaLabel(row);
  const status=row.phase==='interim'?'识别中':row.phase==='interrupted'?'未定稿':row.engine==='page-caption'?'网页字幕':row.engine==='subtitle-import'?'导入字幕':visibleTranslation(row)?'已翻译':row.translationState==='same-language'?'无需翻译':'语音识别';
  return <li className={expanded?'expanded':''}><div className="compact-meta"><span>{time}</span><span>{status}</span><button className="compact-toggle" aria-expanded={expanded} onClick={()=>setExpanded(value=>!value)}>{expanded?'收起':'展开全文'}</button></div><p className="compact-source">{expanded?source:preview}</p>{visibleTranslation(row)&&<p className="compact-translation">{row.translatedText}</p>}</li>;
 }
@@ -79,7 +80,7 @@ function SidePanel(){
  const liveIdentity=state.latestCaption?`${state.latestCaption.sessionId}:${state.latestCaption.epoch}:${state.latestCaption.segmentId}`:'';
  const typedLive=useTypedText(liveTarget,liveIdentity);
  return <main><header><div className="brand"><img aria-hidden="true" className="brand-mark" src="icons/icon-32.png" alt=""/><h1>实时字幕</h1></div><button className="quiet" onClick={()=>setSettings(value=>!value)} aria-expanded={settings}>{settings?'收起设置':'设置'}</button></header>
- <section className="capture"><p className="scope" title={tab?.url}>{tab?.title||'切换到要识别的网页'}</p><div className="controls"><button className="primary" disabled={busy||!tab?.id} onClick={()=>void command('start')}>{busy?'处理中…':active?'重新开始当前页':'开始当前页'}</button><button disabled={busy||state.phase==='idle'} onClick={()=>void command('stop')}>停止</button></div><p className="status" role="status">{state.phase} · {state.message}</p>{error&&<p role="alert" className="error">{error}</p>}</section>
+ <section className="capture"><p className="scope" title={tab?.url}>{tab?.title||'切换到要识别的网页'}</p><div className="controls"><button className="primary" disabled={busy||!tab?.id} onClick={()=>void command('start')}>{busy?'处理中…':active?'重新开始当前页':'开始当前页'}</button><button disabled={busy||state.phase==='idle'} onClick={()=>void command('stop')}>停止</button></div><p className="status" role="status">{state.phase} · {state.message}</p>{state.pageAccessWarning&&<p role="alert" className="error">{state.pageAccessWarning}</p>}{error&&<p role="alert" className="error">{error}</p>}</section>
  {settings&&<section className="settings"><h2>字幕设置</h2><label>语音识别方式<select value={config.recognitionEngine} disabled={active} onChange={event=>change('recognitionEngine',event.target.value)}><option value="browser">仅扩展 · 本机 WASM</option><option value="companion">Node 本地伴侣（对照）</option></select></label><p className="muted">仅扩展模式无需配对服务；语音在浏览器内识别。首次安装需包含约 203 MB 的 WASM 模型文件。运行中请先停止再切换方式。</p><label className="check"><input type="checkbox" checked={config.muteOutput} onChange={event=>change('muteOutput',event.target.checked)}/>静音外放（仍识别标签页音频）</label><p className="muted">保持网页播放器音量开启；如果网页本身静音，扩展也收不到声音。</p>{config.recognitionEngine==='companion'&&<><label>配对令牌<input type="password" autoComplete="off" value={token} onChange={event=>setToken(event.target.value)} onBlur={()=>{void chrome.storage.local.set({token:token.trim()});}} placeholder="粘贴本机 .runtime/token"/></label><p className="muted">令牌只保存在本机，不会同步。</p><label>本地识别服务<input value={config.wsUrl} onChange={event=>change('wsUrl',event.target.value)}/></label></>}
  <div className="field-row"><label>原文语言<select value={config.sourceLanguage} onChange={event=>change('sourceLanguage',event.target.value)}><option value="auto">自动（依赖模型）</option><option value="zh">中文</option><option value="en">English</option></select></label><label>翻译为<select value={config.targetLanguage} onChange={event=>change('targetLanguage',event.target.value)}><option value="en">English</option><option value="zh">中文</option></select></label></div>
  <p className="muted">当前识别模型：{state.asrEngine??'连接后显示'}。{state.asrEngine?.includes('wasm-zipformer-zh-en')?'支持中文和英语；自动语言判断仍可能出错。':config.sourceLanguage==='auto'&&state.asrEngine?.includes('zipformer-zh')?'此模型只识别中文；英语视频需切换到英语模型。':config.sourceLanguage==='auto'&&state.asrEngine?.includes('zipformer-en')?'此模型只识别英语；中文视频需切换到中文模型。':''}</p>

@@ -43,7 +43,7 @@ test('local provider calls a browser fetch with the global receiver',async()=>{
 });
 test('media seek rejects another video on same page and live streams, permits unique stable restored media',()=>{
  const row={url:'https://news.test',videoId:'a',mediaUrl:'https://cdn.test/a.mp4',live:false,mediaTime:10};const a={id:'a',url:row.url,mediaUrl:row.mediaUrl,live:false},b={...a,id:'b',mediaUrl:'https://cdn.test/b.mp4'};
- expect(canSeekMedia(row,b,[a,b])).toBe(false);expect(canSeekMedia(row,a,[a,b])).toBe(true);expect(canSeekMedia(row,{...a,id:'restored'},[{...a,id:'restored'}])).toBe(true);expect(canSeekMedia(row,{...a,id:'restored'},[{...a,id:'x'},{...a,id:'restored'}])).toBe(false);expect(canSeekMedia({...row,live:true},a,[a])).toBe(false);expect(mediaLabel({...row,live:true,mediaTime:48212,start:3})).toBe('直播 +00:03');
+ expect(canSeekMedia(row,b,[a,b])).toBe(false);expect(canSeekMedia(row,a,[a,b])).toBe(true);expect(canSeekMedia(row,{...a,id:'restored'},[{...a,id:'restored'}])).toBe(true);expect(canSeekMedia(row,{...a,id:'restored'},[{...a,id:'x'},{...a,id:'restored'}])).toBe(false);expect(canSeekMedia({...row,live:true},a,[a])).toBe(false);expect(mediaLabel({...row,live:true,mediaTime:48212,start:3})).toBe('直播 +00:03');expect(mediaLabel({...row,mediaTime:-64})).toBe('00:00');
 });
 test('display cleanup preserves negation/numbers/meaningful fillers, final punctuation reflects boundary',()=>{
  const raw='嗯，啊，那个不是20个，就是没有增长3%';expect(displaySource(raw,'interim','duration')).toBe(raw);
