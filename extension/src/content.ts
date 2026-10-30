@@ -38,7 +38,11 @@ if(!(globalThis as any)[sentinel]){
   const rect=selected?.getBoundingClientRect();const useVideo=rect&&rect.width>0&&rect.height>0;
   const left=useVideo?Math.max(0,rect.left):0,top=useVideo?Math.max(0,rect.top):0,width=useVideo?Math.min(rect.width,innerWidth-left):innerWidth,height=useVideo?Math.min(rect.height,innerHeight-top):innerHeight;
   host.style.cssText=`position:fixed!important;left:${left}px!important;top:${top}px!important;width:${width}px!important;height:${height}px!important;display:flex!important;align-items:${config.position==='top'?'flex-start':'flex-end'}!important;justify-content:center!important;padding:24px 0!important;box-sizing:border-box!important;`;
-  text.style.fontSize=`${config.fontSize}px`;text.style.background=`rgba(0,0,0,${config.opacity})`;text.hidden=!text.textContent;
+  text.style.fontSize=`${config.fontSize}px`;
+  const light=config.theme==='light',contrast=config.theme==='high-contrast';
+  text.style.background=contrast?'#000':light?`rgba(255,255,255,${Math.max(.8,config.opacity)})`:`rgba(0,0,0,${config.opacity})`;
+  text.style.color=light?'#171717':'#fff';text.style.textShadow=contrast||light?'none':'0 1px 2px black';
+  sourceLine.style.opacity=contrast?'1':light?'.85':'.72';text.hidden=!text.textContent;
   fullscreenButton.hidden=!selected||!!fullscreen;
  }
  fullscreenButton.onclick=async()=>{try{const parent=selected?.parentElement;if(!parent)throw new Error('找不到视频容器');await parent.requestFullscreen();}catch(error){void send('background','content-warning',{message:`全屏失败：${String(error)}`});}};

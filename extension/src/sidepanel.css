@@ -5,3 +5,18 @@ label.check{flex-direction:row;align-items:center}.check input{width:auto;min-he
 .glossary-editor summary{font-size:14px;font-weight:600;cursor:pointer}.glossary-list{list-style:none;padding:0;max-height:360px;overflow:auto}.glossary-list li{padding:9px 0;border-top:1px solid var(--line)}.glossary-list small{display:block;overflow-wrap:anywhere}.glossary-list button,.glossary-editor>.controls button{font-size:12px}.glossary-editor .controls{flex-wrap:wrap;margin-top:8px}.glossary-editor a,.caption-row a{color:var(--accent);font-size:12px}
 .brand-mark{width:28px;height:28px;flex:none;object-fit:contain}
 .history-link{padding-top:12px}.history-link .section-title{margin-bottom:6px}.history-link .count{font-weight:400;margin-left:4px}.compact-history{list-style:none;margin:0;padding:0;max-height:330px;overflow:auto}.compact-history li{padding:7px 0;border-top:1px solid #e7e7e7}.compact-meta{display:flex;justify-content:space-between;color:var(--muted);font-size:11px;font-variant-numeric:tabular-nums}.compact-history p{margin:2px 0;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.compact-source{font-size:13px}.compact-translation{font-size:12px;color:#505050}
+
+:root[data-theme="dark"]{color-scheme:dark;--line:#39485c;--muted:#b6c3d4;--accent:#78b4ff;color:#edf3fa;background:#151c28}
+:root[data-theme="dark"] body,:root[data-theme="dark"] header{background:#151c28;color:#edf3fa}
+:root[data-theme="dark"] .live{background:#1c2837}
+:root[data-theme="dark"] button,:root[data-theme="dark"] input:not([type=range]),:root[data-theme="dark"] select{background:#202d3d;color:#edf3fa;border-color:#4b5c72}
+:root[data-theme="dark"] button.primary{background:#3d80cf;color:#fff;border-color:#3d80cf}
+:root[data-theme="dark"] button:hover:not(:disabled){background:#30435a}
+:root[data-theme="dark"] .compact-history li,:root[data-theme="dark"] .caption-row{border-color:#39485c}
+:root[data-theme="dark"] .compact-translation{color:#ced8e4}
+:root[data-theme="high-contrast"]{color-scheme:dark;--line:#fff;--muted:#fff;--accent:#ffdf00;color:#fff;background:#000}
+:root[data-theme="high-contrast"] body,:root[data-theme="high-contrast"] header,:root[data-theme="high-contrast"] .live{background:#000;color:#fff}
+:root[data-theme="high-contrast"] button,:root[data-theme="high-contrast"] input:not([type=range]),:root[data-theme="high-contrast"] select{background:#000;color:#fff;border:2px solid #fff}
+:root[data-theme="high-contrast"] button.primary{background:#ffdf00;color:#000;border-color:#ffdf00}
+:root[data-theme="high-contrast"] .compact-history li,:root[data-theme="high-contrast"] .caption-row{border-color:#fff}
+:root[data-theme="high-contrast"] .compact-translation{color:#fff}
