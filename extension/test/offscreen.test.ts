@@ -60,11 +60,11 @@ test('browser recognition resumes after webpage captions disappear',async()=>{
  expect(workers[0].messages.some((message:any)=>message.kind==='pcm'&&message.epoch===1)).toBe(true);
  await command('stop');vi.restoreAllMocks();
 });
-test('same offscreen document Stop then Start creates fresh packet counters and context anchor',async()=>{
+test('same offscreen document Stop then Start creates fresh packet counters and wall anchor',async()=>{
  vi.spyOn(Date,'now').mockReturnValue(100000);
  await start();sockets[0].open();packet();const first=JSON.parse(sockets[0].sent[1]);expect(first.seq).toBe(0);
  await command('stop');vi.mocked(Date.now).mockReturnValue(200000);await start();sockets[1].open();packet();const second=JSON.parse(sockets[1].sent[1]);
- expect(second.seq).toBe(0);expect(second.sampleStart).toBe(0);expect(second.capturedAt).toBe(201000);expect(first.capturedAt).toBe(101000);
+ expect(second.seq).toBe(0);expect(second.sampleStart).toBe(0);expect(second.capturedAt).toBe(200000);expect(first.capturedAt).toBe(100000);
  await command('stop');vi.restoreAllMocks();
 });
 test('failed worklet setup releases acquired tab stream and context before replying error',async()=>{
@@ -74,12 +74,24 @@ test('failed worklet setup releases acquired tab stream and context before reply
 for(const playbackRate of [1,2])test(`packet mediaTime describes capture END at rate ${playbackRate}`,async()=>{
  vi.spyOn(Date,'now').mockReturnValue(100000);
  await start({currentTime:10,observedAt:100000,playbackRate,paused:false});sockets[0].open();packet();const clock=JSON.parse(sockets[0].sent[1]);
- expect(clock.capturedAt).toBe(101000);expect(clock.mediaTime).toBe(10+playbackRate);
+ expect(clock.capturedAt).toBe(100000);expect(clock.mediaTime).toBe(10);
  const worker=Object.assign(new EventEmitter(),{postMessage:()=>{},terminate:()=>{}}),events:any[]=[];
  const server=new Session({sessionId:'session',epoch:0,sourceLanguage:'auto'},(event:any)=>events.push(event),()=>worker);
  worker.emit('message',{type:'ready'});server.clock(clock);server.audio(Buffer.from(sockets[0].sent[2]));
  worker.emit('message',{type:'decoded',text:'真实接口测试',speechStarted:true,decodeMs:1});
- expect(events.find(event=>event.type==='subtitle').mediaTime).toBeCloseTo(10+.9*playbackRate);server.close();
+ expect(events.find(event=>event.type==='subtitle').mediaTime).toBeCloseTo(10-.1*playbackRate);server.close();
+ await command('stop');vi.restoreAllMocks();
+});
+
+test('page navigation uses new wall clock despite suspended AudioContext time',async()=>{
+ vi.spyOn(Date,'now').mockReturnValue(100000);
+ await start({currentTime:10,observedAt:100000,playbackRate:1,paused:false});sockets[0].open();packet();
+ vi.mocked(Date.now).mockReturnValue(130000);
+ await command('page-location',{url:'https://example.com/next'});
+ await command('video',{video:{currentTime:2,observedAt:130000,playbackRate:1,paused:false}});
+ sockets[0].onmessage({data:JSON.stringify({type:'reset',sessionId:'session',epoch:1})});packet();
+ const clock=JSON.parse(sockets[0].sent.at(-2));
+ expect(clock.capturedAt).toBe(130000);expect(clock.mediaTime).toBe(2);
  await command('stop');vi.restoreAllMocks();
 });
 

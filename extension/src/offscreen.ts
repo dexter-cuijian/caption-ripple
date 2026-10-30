@@ -6,10 +6,11 @@ import {translationMatches}from'./render';
 import {FinalTranslator,LiveTranslator,translatorAPI,type NativeTranslator} from './translation';
 import {RevisionGate,terminalClose} from './core';
 import {retainCaptionOnReset} from './media';
+import {captureAnchor,capturedAt,mediaTimeAt} from './capture-clock';
 import {defaults, initialState,send, type Config,type VideoInfo} from './shared';
 let context:AudioContext|undefined,stream:MediaStream|undefined,source:MediaStreamAudioSourceNode|undefined,worklet:AudioWorkletNode|undefined,silent:GainNode|undefined,playback:GainNode|undefined;
 let socket:WebSocket|undefined,asrWorker:Worker|undefined,retry:ReturnType<typeof setTimeout>|undefined,active=false,accepted=false,attempt=0;
-let sessionId='',epoch=0,seq=0,sampleStart=0,anchor:number|null=null,contextWall=0,browserOutstanding=0;
+let sessionId='',epoch=0,seq=0,sampleStart=0,anchor:number|null=null,browserOutstanding=0;
 let latestSource:any;let glossary:GlossaryState=emptyGlossary,captureScopeUrl='';
 let pageCaptionUntil=0,pageCaptionMode=false;
 const scopeUrl=()=>video?.url||captureScopeUrl;
@@ -130,12 +131,11 @@ async function stop(){
  publish({...initialState});
 }
 async function start(message:any){
- await stop();seq=0;sampleStart=0;anchor=null;attempt=0;contextWall=0;config={...defaults,...message.config};glossary={version:message.glossary?.version??0,entries:validateGlossary(message.glossary?.entries??[])};captureScopeUrl=message.scopeUrl??'';token=message.token;sessionId=message.sessionId;epoch=0;revisions.reset(sessionId,epoch);translations.reset(sessionId,epoch);liveTranslations.reset(sessionId,epoch);proofreader.reset(sessionId,epoch);video=message.video;
+ await stop();seq=0;sampleStart=0;anchor=null;attempt=0;config={...defaults,...message.config};glossary={version:message.glossary?.version??0,entries:validateGlossary(message.glossary?.entries??[])};captureScopeUrl=message.scopeUrl??'';token=message.token;sessionId=message.sessionId;epoch=0;revisions.reset(sessionId,epoch);translations.reset(sessionId,epoch);liveTranslations.reset(sessionId,epoch);proofreader.reset(sessionId,epoch);video=message.video;
  try{
  stream=await navigator.mediaDevices.getUserMedia({audio:{mandatory:{chromeMediaSource:'tab',chromeMediaSourceId:message.streamId}} as MediaTrackConstraints,video:false});
  context=new AudioContext();await context.audioWorklet.addModule(chrome.runtime.getURL('worklet.js'));await context.resume();
  context.onstatechange=()=>publish({contextState:context?.state??'none'});
- contextWall=Date.now()-context.currentTime*1000;
  source=context.createMediaStreamSource(stream);
  // The output gain can mute speakers without muting the captured analysis branch.
  playback=context.createGain();playback.gain.value=config.muteOutput?0:1;source.connect(playback);playback.connect(context.destination);
@@ -147,14 +147,14 @@ async function start(message:any){
   if(!accepted||video?.paused)return;
   if(config.recognitionEngine==='companion'&&socket?.readyState!==WebSocket.OPEN)return;
   if(config.recognitionEngine==='companion'&&socket!.bufferedAmount>64000){reset('音频发送积压，重新同步');return;}
-  if(anchor===null)anchor=contextWall+data.contextTime*1000-100;
-  const capturedAt=anchor+(sampleStart+1600)/16;
-  const mediaTime=video?.currentTime==null?null:video.currentTime+(capturedAt-video.observedAt)/1000*video.playbackRate;
+  if(anchor===null)anchor=captureAnchor(Date.now(),1600,16_000);
+  const packetAt=capturedAt(anchor,sampleStart+1600,16_000);
+  const mediaTime=mediaTimeAt(video,packetAt);
   if(config.recognitionEngine==='browser'){
    if(browserOutstanding>=50){reset('扩展内识别积压超过 5 秒，重新同步');asrWorker?.terminate();asrWorker=undefined;connectBrowser();return;}
-   browserOutstanding++;asrWorker?.postMessage({kind:'pcm',sessionId,epoch,pcm:data.pcm,capturedAt,mediaTime},[data.pcm]);
+   browserOutstanding++;asrWorker?.postMessage({kind:'pcm',sessionId,epoch,pcm:data.pcm,capturedAt:packetAt,mediaTime},[data.pcm]);
   }
-  else{socket!.send(JSON.stringify({type:'clock',sessionId,epoch,seq:seq++,capturedAt,sampleStart,mediaTime,playbackRate:video?.playbackRate??1,paused:false}));socket!.send(data.pcm);}
+  else{socket!.send(JSON.stringify({type:'clock',sessionId,epoch,seq:seq++,capturedAt:packetAt,sampleStart,mediaTime,playbackRate:video?.playbackRate??1,paused:false}));socket!.send(data.pcm);}
   sampleStart+=1600;publish({framesSent:state.framesSent+1600});
  };
  stream.getAudioTracks()[0].onended=()=>{void stop();};active=true;publish({outputConnected:true});if(config.recognitionEngine==='browser')connectBrowser();else connect();
