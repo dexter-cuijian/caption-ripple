@@ -6,6 +6,7 @@ import {renderAndConfirm,overlayVisible,translationMatches} from './render';
 import {defaults,send,type Config,type VideoInfo} from './shared';
 import {typewriterStep,liveSubtitleText} from './typewriter';
 import {retainCaptionOnReset} from './media';
+import {captionHoldDelay} from './caption-hold';
 const sentinel='__localCaptionInstalled';
 if(!(globalThis as any)[sentinel]){
  (globalThis as any)[sentinel]=true;
@@ -18,12 +19,14 @@ if(!(globalThis as any)[sentinel]){
  let pageCaptionText='',pageCaptionAt=0,pendingCaptionText='',pageCaptionTimer:ReturnType<typeof setTimeout>|undefined;
  const pageCaptionRevisions=new PageCaptionRevisions();
  let importedCues:ImportedCue[]|undefined,importedVideoId='',importedCueIndex=-2;
- let lastUrl=location.href;let pending=false;let currentEvent:any;let displayedTranslationRevision=0;
+ let lastUrl=location.href;let pending=false;let currentEvent:any;let displayedTranslationRevision=0,finalShownAt=0;
  let typingTimer:ReturnType<typeof setTimeout>|undefined,typingTarget='',typingIdentity='';
+ let holdTimer:ReturnType<typeof setTimeout>|undefined,pendingEvent:any,pendingFinalTranslation:any,pendingLiveTranslation:any;
  const host=document.createElement('div');host.id='local-caption-host';
  const shadow=host.attachShadow({mode:'closed'});const text=document.createElement('div');text.setAttribute('role','status');text.setAttribute('aria-live','polite');
  const sourceLine=document.createElement('span'),targetLine=document.createElement('span');sourceLine.className='source';targetLine.className='translation';text.append(sourceLine,targetLine);
- const clearText=()=>{clearTimeout(typingTimer);typingTarget='';typingIdentity='';sourceLine.textContent='';targetLine.textContent='';displayedTranslationRevision=0;};
+ const discardPending=()=>{clearTimeout(holdTimer);pendingEvent=undefined;pendingFinalTranslation=undefined;pendingLiveTranslation=undefined;};
+ const clearText=()=>{discardPending();clearTimeout(typingTimer);typingTarget='';typingIdentity='';sourceLine.textContent='';targetLine.textContent='';displayedTranslationRevision=0;finalShownAt=0;};
  const showSource=(target:string,identity:string,animate:boolean)=>{
   clearTimeout(typingTimer);typingTarget=target;
   if(identity!==typingIdentity){typingIdentity=identity;sourceLine.textContent='';}
@@ -105,14 +108,26 @@ if(!(globalThis as any)[sentinel]){
  const observer=new MutationObserver(records=>{if(!ownsPage()){observer.disconnect();host.remove();return;}if(records.some(r=>[...r.addedNodes].some(n=>n instanceof Element&&(n.tagName==='IFRAME'||n.querySelector('iframe')))))void send('background','frames-changed').catch(()=>{});if(records.some(r=>r.target!==host&&!shadow.contains(r.target)))schedule();});observer.observe(document.documentElement,{childList:true,subtree:true});
  document.addEventListener('fullscreenchange',position);window.addEventListener('resize',position);window.addEventListener('scroll',position,{passive:true});
  const interval=setInterval(()=>{if(!ownsPage()){clearInterval(interval);host.remove();return;}if(location.href!==lastUrl){lastUrl=location.href;if(window===window.top&&sessionId)void send('background','page-location',{url:location.href,title:document.title});else if(selected)void send('background','video-event',{video:info(selected),reason:'navigation'});}if(sessionId)scan();},1000);
+ const sameCaption=(a:any,b:any)=>a?.sessionId===b?.sessionId&&a?.epoch===b?.epoch&&a?.segmentId===b?.segmentId;
+ const showFinalTranslation=(event:any)=>{if(enabled&&translationMatches(currentEvent,event,displayedTranslationRevision)){displayedTranslationRevision=event.translationRevision??1;targetLine.textContent=event.text===currentEvent.sourceText?'':subtitlePage(event.text).text;position();}};
+ const showLiveTranslation=(event:any)=>{if(enabled&&currentEvent?.phase==='interim'&&sameCaption(currentEvent,event)&&subtitlePage(currentEvent.displaySourceText??currentEvent.sourceText).index===event.pageIndex){targetLine.textContent=event.text===event.pageText?'':subtitlePage(event.text).text;position();}};
+ function showSubtitle(event:any){
+  const previous=currentEvent;currentEvent=event;if(event.phase==='final')finalShownAt=Date.now();
+  const shown=event.displaySourceText??displaySource(event.sourceText,event.phase,event.splitReason);
+  showSource(['page-caption','subtitle-import'].includes(event.engine)?subtitlePage(shown).text:liveSubtitleText(shown),`${event.sessionId}:${event.epoch}:${event.segmentId}`,event.phase==='interim'&&event.engine!=='page-caption');
+  if(event.phase!=='interim'||previous?.phase!=='interim'||previous.segmentId!==event.segmentId||!event.sourceText.startsWith(previous.sourceText))targetLine.textContent='';
+  displayedTranslationRevision=0;position();
+  renderAndConfirm(()=>currentEvent===event&&host.isConnected&&!text.hidden&&document.visibilityState==='visible'&&overlayVisible(document.fullscreenElement instanceof HTMLVideoElement,host.getBoundingClientRect(),innerWidth,innerHeight)&&overlayVisible(false,text.getBoundingClientRect(),innerWidth,innerHeight),()=>{void send('background','rendered',{event:{type:'rendered',sessionId:event.sessionId,epoch:event.epoch,segmentId:event.segmentId,revision:event.revision,renderedAt:Date.now(),hasTranslation:false}});});
+ }
+ const flushPending=()=>{const event=pendingEvent,finalTranslation=pendingFinalTranslation,liveTranslation=pendingLiveTranslation;discardPending();if(!event||!enabled)return;showSubtitle(event);if(liveTranslation)showLiveTranslation(liveTranslation);if(finalTranslation)showFinalTranslation(finalTranslation);};
  chrome.runtime.onMessage.addListener((message,_sender,reply)=>{
   if(message.target!=='content')return;
   if(!ownsPage()){reply({ok:false});return;}
   if(message.kind==='inspect')scan();
   if(message.kind==='config'){config={...defaults,...message.config};position();}
   if(message.kind==='seek'&&selected&&ids.get(selected)===message.id&&Number.isFinite(message.time)&&!info(selected).live&&info(selected).mediaUrl===message.mediaUrl){selected.currentTime=Math.max(0,message.time);}
-  if(message.kind==='translation'&&enabled&&translationMatches(currentEvent,message.event,displayedTranslationRevision)){displayedTranslationRevision=message.event.translationRevision??1;targetLine.textContent=message.event.text===currentEvent.sourceText?'':subtitlePage(message.event.text).text;position();}
-  if(message.kind==='interim-translation'&&enabled&&currentEvent?.phase==='interim'&&currentEvent.sessionId===message.event.sessionId&&currentEvent.epoch===message.event.epoch&&currentEvent.segmentId===message.event.segmentId&&subtitlePage(currentEvent.displaySourceText??currentEvent.sourceText).index===message.event.pageIndex){targetLine.textContent=message.event.text===message.event.pageText?'':subtitlePage(message.event.text).text;position();}
+  if(message.kind==='translation'&&enabled){if(pendingEvent&&sameCaption(pendingEvent,message.event))pendingFinalTranslation=message.event;else showFinalTranslation(message.event);}
+  if(message.kind==='interim-translation'&&enabled){if(pendingEvent&&sameCaption(pendingEvent,message.event))pendingLiveTranslation=message.event;else showLiveTranslation(message.event);}
   if(message.kind==='select'){
    if(message.sessionId&&(sessionId!==message.sessionId||epoch!==message.epoch)){sessionId=message.sessionId;epoch=message.epoch;gate.reset(sessionId,epoch);clearText();currentEvent=undefined;}
    frameId=message.frameId??0;config={...defaults,...message.config};
@@ -123,15 +138,12 @@ if(!(globalThis as any)[sentinel]){
   if(message.kind==='import-subtitles'){importedCues=message.cues;importedVideoId=message.videoId;importedCueIndex=-2;captureImportedCue();}
   if(message.kind==='clear-import'){importedCues=undefined;importedVideoId='';importedCueIndex=-2;clearText();position();}
   if(message.kind==='clear-import-cue'){clearText();position();}
-  if(message.kind==='epoch'){sessionId=message.sessionId;epoch=message.epoch;gate.reset(sessionId,epoch);pageCaptionText='';pageCaptionAt=0;pendingCaptionText='';pageCaptionRevisions.reset();clearTimeout(pageCaptionTimer);if(!retainCaptionOnReset(message.reason)){clearText();currentEvent=undefined;}else position();}
+  if(message.kind==='epoch'){const keep=retainCaptionOnReset(message.reason);if(keep&&pendingEvent)flushPending();sessionId=message.sessionId;epoch=message.epoch;gate.reset(sessionId,epoch);pageCaptionText='';pageCaptionAt=0;pendingCaptionText='';pageCaptionRevisions.reset();clearTimeout(pageCaptionTimer);if(!keep){clearText();currentEvent=undefined;}position();}
   if(message.kind==='clear'){enabled=false;sessionId='';importedCues=undefined;importedVideoId='';importedCueIndex=-2;clearTimeout(pageCaptionTimer);pageCaptionText='';pendingCaptionText='';pageCaptionRevisions.reset();clearText();host.remove();}
   if(message.kind==='subtitle'&&enabled&&(message.event.engine==='subtitle-import'||gate.accept(message.event))){
-   const event=message.event,previous=currentEvent;currentEvent=event;
-   const shown=event.displaySourceText??displaySource(event.sourceText,event.phase,event.splitReason);
-   showSource(['page-caption','subtitle-import'].includes(event.engine)?subtitlePage(shown).text:liveSubtitleText(shown),`${event.sessionId}:${event.epoch}:${event.segmentId}`,event.phase==='interim'&&event.engine!=='page-caption');
-   if(event.phase!=='interim'||previous?.phase!=='interim'||previous.segmentId!==event.segmentId||!event.sourceText.startsWith(previous.sourceText))targetLine.textContent='';
-   displayedTranslationRevision=0;position();
-   renderAndConfirm(()=>currentEvent===event&&host.isConnected&&!text.hidden&&document.visibilityState==='visible'&&overlayVisible(document.fullscreenElement instanceof HTMLVideoElement,host.getBoundingClientRect(),innerWidth,innerHeight)&&overlayVisible(false,text.getBoundingClientRect(),innerWidth,innerHeight),()=>{void send('background','rendered',{event:{type:'rendered',sessionId:event.sessionId,epoch:event.epoch,segmentId:event.segmentId,revision:event.revision,renderedAt:Date.now(),hasTranslation:false}});});
+   const event=message.event,now=Date.now(),delay=pendingEvent&&sameCaption(pendingEvent,event)?Math.max(0,finalShownAt+3000-now):captionHoldDelay(currentEvent,event,finalShownAt,now);
+   if(delay>0){pendingEvent=event;clearTimeout(holdTimer);holdTimer=setTimeout(flushPending,delay);}
+   else{const finalTranslation=pendingFinalTranslation,liveTranslation=pendingLiveTranslation,samePending=sameCaption(pendingEvent,event);discardPending();showSubtitle(event);if(samePending&&liveTranslation)showLiveTranslation(liveTranslation);if(samePending&&finalTranslation)showFinalTranslation(finalTranslation);}
   }
   reply({ok:true});
  });scan();
