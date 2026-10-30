@@ -1,0 +1,114 @@
+{
+  "paraformer": {
+    "repository": "csukuangfj/sherpa-onnx-streaming-paraformer-bilingual-zh-en",
+    "revision": "8e40c43232a1c5c66c82111efc5820d3accca11b",
+    "source": "https://k2-fsa.github.io/sherpa/onnx/pretrained_models/online-paraformer/paraformer-models.html",
+    "files": [
+      {
+        "name": "encoder.int8.onnx",
+        "size": 165462184,
+        "sha256": "81a70226a8934e6ed92aa1d4fc486b428b5398e2f2619ed4897b7294cab90e9a"
+      },
+      {
+        "name": "decoder.int8.onnx",
+        "size": 71664561,
+        "sha256": "f3cca9f77bb9d93c8fcbfb63ae617b6b1ee96818df3aa3b151c40658fe38594f"
+      },
+      {
+        "name": "tokens.txt",
+        "size": 75756,
+        "gitBlob": "57bc045ddda0434ed4440c38e14287c595b258d9"
+      }
+    ]
+  },
+  "hy-mt2": {
+    "repository": "tencent/Hy-MT2-1.8B-GGUF",
+    "revision": "a0c709d9fac510f2c807aa3af52872340dc37a4a",
+    "source": "https://github.com/Tencent-Hunyuan/Hy-MT",
+    "files": [
+      {
+        "name": "Hy-MT2-1.8B-Q4_K_M.gguf",
+        "size": 1133080448,
+        "sha256": "dc5f44fcf1fa496ee7ad725982c0c8c553a4de00259b53af84c4b89fb0c06699"
+      },
+      {
+        "name": "LICENSE.txt",
+        "size": 11639,
+        "gitBlob": "271c97261848d7b61366d20262762f5c47b4a0c6"
+      }
+    ]
+  },
+  "zipformer-en": {
+    "repository": "csukuangfj/sherpa-onnx-streaming-zipformer-en-2023-06-26",
+    "revision": "672fbf1b30579d6585301139bb363f42a0ad4a24",
+    "source": "https://k2-fsa.github.io/sherpa/onnx/pretrained_models/online-transducer/zipformer-transducer-models.html",
+    "files": [
+      {
+        "name": "encoder-epoch-99-avg-1-chunk-16-left-128.int8.onnx",
+        "size": 71083163,
+        "sha256": "563fde436d16cf7607cf408cd6b30909819d03162652ef389c2450ced3f45ac1"
+      },
+      {
+        "name": "decoder-epoch-99-avg-1-chunk-16-left-128.int8.onnx",
+        "size": 1307236,
+        "sha256": "98da299f471e38bb4e1a8df579b8cc9122d6039576a77e357b3c60f17dd83b02"
+      },
+      {
+        "name": "joiner-epoch-99-avg-1-chunk-16-left-128.int8.onnx",
+        "size": 259335,
+        "sha256": "d944208d660d67c8d72cd2acaeac971fa5ceb8c80e76c1968148846fedd6e297"
+      },
+      {
+        "name": "tokens.txt",
+        "size": 5048,
+        "gitBlob": "b4d1bf82e68de1354f2a3f5fd51094d61d65c77c"
+      }
+    ]
+  },
+  "zipformer-zh": {
+    "repository": "csukuangfj/sherpa-onnx-streaming-zipformer-zh-int8-2025-06-30",
+    "revision": "ad658fa0201659a09ea3c176129a191c77ecae8f",
+    "source": "https://k2-fsa.github.io/sherpa/onnx/pretrained_models/online-transducer/zipformer-transducer-models.html",
+    "files": [
+      {
+        "name": "encoder.int8.onnx",
+        "size": 161141793,
+        "sha256": "5ac51e27981bb4dab01bb9be4958453ba50c3b61c063ddda0eab23fd3671aa4f"
+      },
+      {
+        "name": "decoder.onnx",
+        "size": 5165083,
+        "sha256": "06522ad63cec0fdf6809f4e1db9bb4f7d710c34582e3b35db62ac60eccafac7e"
+      },
+      {
+        "name": "joiner.int8.onnx",
+        "size": 1033416,
+        "sha256": "b34584dc6f561089e1d747fedebb3765f2caa72c927ef54d7ca55e5ae40a814b"
+      },
+      {
+        "name": "tokens.txt",
+        "size": 20628,
+        "sha256": "6193c7ea1c96d0d9a1e9652789b40d13a8a913b434a5451e93158f5a09fd6652"
+      }
+    ]
+  },
+  "punctuation": {
+    "source": "https://k2-fsa.github.io/sherpa/onnx/punctuation/pretrained_models.html",
+    "archive": {
+      "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/punctuation-models/sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12-int8.tar.bz2",
+      "size": 64717756,
+      "sha256": "c0d5aa5f8eeb686032345e180bedf39319dc2e0556781c6264bcadba8328a6e1",
+      "prefix": "sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12-int8",
+      "notices": [
+        "README.md"
+      ]
+    },
+    "files": [
+      {
+        "name": "model.int8.onnx",
+        "size": 75519198,
+        "sha256": "65a3fb9f5ad7bfb96bf69e0dc4481df97f6ee60513c1d94ce981ba6effd524b1"
+      }
+    ]
+  }
+}

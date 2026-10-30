@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="语音即时翻译为双语字幕">
+  <rect width="128" height="128" rx="28" fill="#1468EF"/>
+  <path d="M18 59v10M29 50v28M40 43v42M51 52v24" fill="none" stroke="#fff" stroke-width="7" stroke-linecap="round"/>
+  <path d="M61 64h15m-6-7 7 7-7 7" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="86" y="50" width="28" height="9" rx="4.5" fill="#fff"/>
+  <rect x="86" y="69" width="28" height="9" rx="4.5" fill="#55E6AE"/>
+</svg>

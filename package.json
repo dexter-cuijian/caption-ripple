@@ -1,0 +1,33 @@
+{
+  "name": "live-caption-translator",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node server/index.mjs",
+    "test": "node --test server/test/*.test.mjs tests/*.test.mjs && npm run test:extension",
+    "test:extension": "vitest run",
+    "build": "node scripts/build.mjs",
+    "setup:model": "node scripts/download-model.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "sherpa-onnx-node": "2.0.1",
+    "ws": "8.22.0"
+  },
+  "devDependencies": {
+    "@types/chrome": "0.1.31",
+    "@types/react": "19.2.2",
+    "@types/react-dom": "19.2.2",
+    "esbuild": "0.28.2",
+    "fake-indexeddb": "6.2.6",
+    "typescript": "5.9.3",
+    "vite": "8.3.5",
+    "vitest": "5.0.5"
+  }
+}
