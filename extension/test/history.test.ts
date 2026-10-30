@@ -15,6 +15,25 @@ test('progressive page-caption revisions replace the same history row',async()=>
  expect(result.total).toBe(1);expect(result.rows[0].sourceText).toBe('You know, the first thing you think');
  await history.closeHistory();
 });
+test('retiring an epoch marks unfinished recognition as interrupted and preserves finalized captions',async()=>{
+ const history=await import('../src/history');
+ const interim={...row('unfinished',2),sessionId:'retire-interim',phase:'interim',sourceText:'Words heard before stop',createdAt:100};
+ await history.saveInterim(interim);
+ await history.saveFinal({...row('done'),sessionId:'retire-interim',createdAt:101});
+ await history.retireInterims('retire-interim',0);
+ const result=await history.queryHistory({session:'retire-interim'});
+ expect(result.rows.find(item=>item.segmentId==='unfinished')).toMatchObject({phase:'interrupted',sourceText:'Words heard before stop',translationState:'cancelled'});
+ expect(result.rows.find(item=>item.segmentId==='done')?.phase).toBe('final');
+ await history.closeHistory();
+});
+test('retiring all orphaned interim rows cleans up legacy sessions',async()=>{
+ const history=await import('../src/history');
+ await history.saveInterim({...row('old'),sessionId:'old-interim',phase:'interim',sourceText:'Orphaned words',createdAt:200});
+ await history.retireInterims();
+ const result=await history.queryHistory({session:'old-interim'});
+ expect(result.rows[0].phase).toBe('interrupted');
+ await history.closeHistory();
+});
 test('history hides older cumulative page-caption rows already stored with separate IDs',async()=>{
  const history=await import('../src/history');
  const base={...row('page-1'),sessionId:'legacy-page',engine:'page-caption',sourceText:'You know, the first thing',createdAt:1000,mediaTime:2};

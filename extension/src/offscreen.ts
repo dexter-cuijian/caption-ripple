@@ -8,7 +8,7 @@ import {RevisionGate,terminalClose} from './core';
 import {defaults, initialState,send, type Config,type VideoInfo} from './shared';
 let context:AudioContext|undefined,stream:MediaStream|undefined,source:MediaStreamAudioSourceNode|undefined,worklet:AudioWorkletNode|undefined,silent:GainNode|undefined;
 let socket:WebSocket|undefined,asrWorker:Worker|undefined,retry:ReturnType<typeof setTimeout>|undefined,active=false,accepted=false,attempt=0;
-let sessionId='',epoch=0,seq=0,sampleStart=0,anchor:number|null=null,contextWall=0;
+let sessionId='',epoch=0,seq=0,sampleStart=0,anchor:number|null=null,contextWall=0,browserOutstanding=0;
 let latestSource:any;let glossary:GlossaryState=emptyGlossary,captureScopeUrl='';
 let pageCaptionUntil=0,pageCaptionMode=false;
 const scopeUrl=()=>video?.url||captureScopeUrl;
@@ -73,7 +73,7 @@ function receiveSubtitle(data:any){
 
 function reset(reason:string){
  pageCaptionMode=false;pageCaptionUntil=0;liveTranslations.reset(sessionId,epoch+1);
- latestSource=undefined;const previousEpoch=epoch;epoch++;revisions.reset(sessionId,epoch);translations.reset(sessionId,epoch);proofreader.reset(sessionId,epoch);seq=0;sampleStart=0;anchor=null;accepted=false;
+ latestSource=undefined;const previousEpoch=epoch;epoch++;revisions.reset(sessionId,epoch);translations.reset(sessionId,epoch);proofreader.reset(sessionId,epoch);seq=0;sampleStart=0;anchor=null;browserOutstanding=0;accepted=false;
  publish({latestText:'',latestCaption:undefined,latestTranslation:'',translationError:undefined,latestTranslationRevision:0,latestDisplayText:'',message:reason});
  if(socket?.readyState===WebSocket.OPEN)socket.send(JSON.stringify({type:'reset',sessionId,epoch,mediaTime:video?.currentTime??null,sourceLanguage:config.sourceLanguage,hotwords:hotwordsFor(glossary.entries,config.sourceLanguage,scopeUrl()),reason}));
  asrWorker?.postMessage({kind:'reset',sessionId,epoch});
@@ -84,7 +84,9 @@ function connectBrowser(){
  const worker=new Worker(chrome.runtime.getURL('asr-worker.js'));asrWorker=worker;
  worker.onmessage=({data})=>{
   if(asrWorker!==worker||!active)return;
-  if(data.kind==='ready'){accepted=true;worker.postMessage({kind:'reset',sessionId,epoch});publish({phase:'running',message:'正在使用扩展内语音识别'});}
+  if(data.kind==='ready')worker.postMessage({kind:'reset',sessionId,epoch});
+  if(data.kind==='reset-done'&&data.sessionId===sessionId&&data.epoch===epoch){accepted=true;publish({phase:'running',message:'正在使用扩展内语音识别'});}
+  if(data.kind==='processed'&&data.sessionId===sessionId&&data.epoch===epoch)browserOutstanding=Math.max(0,browserOutstanding-1);
   if(data.kind==='loading')publish({message:data.message});
   if(data.kind==='subtitle'&&!pageCaptionMode&&data.event?.sessionId===sessionId&&data.event?.epoch===epoch)receiveSubtitle(data.event);
   if(data.kind==='error'){accepted=false;publish({phase:'error',message:`扩展内语音识别失败：${data.message}`});}
@@ -117,7 +119,7 @@ function connect(){
  };
 }
 async function stop(){
- pageCaptionMode=false;pageCaptionUntil=0;
+ pageCaptionMode=false;pageCaptionUntil=0;browserOutstanding=0;
  latestSource=undefined;active=false;accepted=false;clearTimeout(retry);translations.reset('',-1);liveTranslations.reset('',-1);proofreader.reset('',-1);
  if(socket?.readyState===WebSocket.OPEN)socket.send(JSON.stringify({type:'stop',sessionId,epoch}));socket?.close();socket=undefined;asrWorker?.terminate();asrWorker=undefined;
  if(worklet)worklet.port.onmessage=null;
@@ -147,7 +149,10 @@ async function start(message:any){
   if(anchor===null)anchor=contextWall+data.contextTime*1000-100;
   const capturedAt=anchor+(sampleStart+1600)/16;
   const mediaTime=video?.currentTime==null?null:video.currentTime+(capturedAt-video.observedAt)/1000*video.playbackRate;
-  if(config.recognitionEngine==='browser')asrWorker?.postMessage({kind:'pcm',sessionId,epoch,pcm:data.pcm,capturedAt,mediaTime},[data.pcm]);
+  if(config.recognitionEngine==='browser'){
+   if(browserOutstanding>=50){reset('扩展内识别积压超过 5 秒，重新同步');asrWorker?.terminate();asrWorker=undefined;connectBrowser();return;}
+   browserOutstanding++;asrWorker?.postMessage({kind:'pcm',sessionId,epoch,pcm:data.pcm,capturedAt,mediaTime},[data.pcm]);
+  }
   else{socket!.send(JSON.stringify({type:'clock',sessionId,epoch,seq:seq++,capturedAt,sampleStart,mediaTime,playbackRate:video?.playbackRate??1,paused:false}));socket!.send(data.pcm);}
   sampleStart+=1600;publish({framesSent:state.framesSent+1600});
  };
