@@ -32,6 +32,21 @@ test('deleting a displayed caption removes every stitched fragment and clearing 
  expect((await history.queryHistory()).total).toBe(0);
  await history.closeHistory();
 });
+test('page recordings list time ranges and scoped deletion preserves other pages and sessions',async()=>{
+ const history=await import('../src/history');
+ const one={...row('one'),sessionId:'tab-one',url:'https://news.test/a',title:'Article A',createdAt:1_800_000_000_000};
+ await history.saveFinal(one);
+ await history.saveFinal({...one,segmentId:'two',createdAt:1_800_000_005_000});
+ await history.saveFinal({...one,sessionId:'tab-two',segmentId:'three',createdAt:1_800_000_010_000});
+ await history.saveFinal({...one,sessionId:'other',segmentId:'four',url:'https://news.test/b',title:'Article B',createdAt:1_800_000_015_000});
+ const pages=await history.listPageRecordings();
+ expect(pages.find(page=>page.url==='https://news.test/a')).toMatchObject({count:3,recordings:[{sessionId:'tab-two',count:1},{sessionId:'tab-one',count:2,firstAt:1_800_000_000_000,lastAt:1_800_000_005_000}]});
+ expect(await history.deleteHistoryScope({url:'https://news.test/a',sessionId:'tab-one'})).toBe(2);
+ expect((await history.queryHistory({url:'https://news.test/a'})).total).toBe(1);
+ expect(await history.deleteHistoryScope({url:'https://news.test/a'})).toBe(1);
+ expect((await history.queryHistory()).rows.map(item=>item.sessionId)).toEqual(['other']);
+ await history.closeHistory();
+});
 test('final source and translation patch survive closing and reopening connection as one row',async()=>{
  const history=await import('../src/history');await history.saveFinal(row());await history.saveTranslation({sessionId:'persistent',epoch:0,segmentId:'a',sourceRevision:1,targetLanguage:'en',text:'No growth of 20%',engine:'chrome',startedAt:1,completedAt:2});
  await history.closeHistory();const result=await history.queryHistory({session:'persistent'});expect(result.total).toBe(1);expect(result.rows[0].translatedText).toBe('No growth of 20%');await history.closeHistory();

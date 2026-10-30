@@ -68,6 +68,29 @@ export async function clearHistory(){
   count.onsuccess=()=>{deleted=count.result;store.clear();};tx.oncomplete=()=>resolve(deleted);tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error);
  });
 }
+export interface PageRecording{sessionId:string;firstAt:number;lastAt:number;count:number}
+export interface PageHistory{url:string;title:string;firstAt:number;lastAt:number;count:number;recordings:PageRecording[]}
+/** Group stored captions by the top-page URL and capture session. Legacy times are caption times. */
+export async function listPageRecordings(){
+ const database=await db();return new Promise<PageHistory[]>((resolve,reject)=>{const pages=new Map<string,PageHistory>();
+  const request=database.transaction('captions').objectStore('captions').openCursor();
+  request.onsuccess=()=>{const cursor=request.result;if(!cursor){resolve([...pages.values()].sort((a,b)=>b.lastAt-a.lastAt).map(page=>({...page,recordings:page.recordings.sort((a,b)=>b.lastAt-a.lastAt)})));return;}
+   const row=cursor.value as CaptionRow,url=row.url||'',at=row.createdAt;let page=pages.get(url);
+   if(!page){page={url,title:row.title||url||'未知网页',firstAt:at,lastAt:at,count:0,recordings:[]};pages.set(url,page);}
+   page.firstAt=Math.min(page.firstAt,at);if(at>=page.lastAt){page.lastAt=at;page.title=row.title||page.title;}page.count++;
+   let recording=page.recordings.find(item=>item.sessionId===row.sessionId);
+   if(!recording){recording={sessionId:row.sessionId,firstAt:at,lastAt:at,count:0};page.recordings.push(recording);}
+   recording.firstAt=Math.min(recording.firstAt,at);recording.lastAt=Math.max(recording.lastAt,at);recording.count++;cursor.continue();};
+  request.onerror=()=>reject(request.error);
+ });
+}
+/** Delete one page or one page's capture session in a single transaction. */
+export async function deleteHistoryScope({url,sessionId}:{url:string;sessionId?:string}){
+ const database=await db();return new Promise<number>((resolve,reject)=>{let deleted=0;const tx=database.transaction('captions','readwrite'),request=tx.objectStore('captions').openCursor();
+  request.onsuccess=()=>{const cursor=request.result;if(!cursor)return;const row=cursor.value as CaptionRow;if(row.url===url&&(!sessionId||row.sessionId===sessionId)){cursor.delete();deleted++;}cursor.continue();};
+  tx.oncomplete=()=>resolve(deleted);tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error);
+ });
+}
 /** An interrupted hypothesis remains searchable, but is no longer shown as live recognition. */
 export async function retireInterims(sessionId?:string,epoch?:number){
  const database=await db();return new Promise<void>((resolve,reject)=>{const tx=database.transaction('captions','readwrite');const request=tx.objectStore('captions').openCursor();request.onsuccess=()=>{const cursor=request.result;if(!cursor)return;const row=cursor.value as CaptionRow;if((!sessionId||row.sessionId===sessionId)&&(epoch===undefined||row.epoch===epoch)&&row.phase==='interim')cursor.update({...row,phase:'interrupted',translationState:'cancelled'});cursor.continue();};tx.oncomplete=()=>resolve();tx.onerror=()=>reject(tx.error);});
@@ -89,7 +112,7 @@ export async function queryHistory({search='',session='',url='',urls=[],page=0,p
  }cursor.continue();};tx.oncomplete=()=>resolve({rows,total,sessions:[...sessions].map(([id,title])=>({id,title}))});tx.onerror=()=>reject(tx.error);
  });
 }
-export async function allHistory(session=''){const database=await db();return new Promise<CaptionRow[]>((resolve,reject)=>{const rows:CaptionRow[]=[];const request=database.transaction('captions').objectStore('captions').index('createdAt').openCursor();request.onsuccess=()=>{const cursor=request.result;if(!cursor){resolve(rows);return;}const row=cursor.value as CaptionRow;if(!session||row.sessionId===session){const previous=rows.at(-1);if(previous&&olderPageCaptionDuplicate(previous,row))rows[rows.length-1]=row;else if(previous){const joined=stitchHistory(previous,row);if(joined)rows[rows.length-1]=joined;else rows.push(row);}else rows.push(row);}cursor.continue();};request.onerror=()=>reject(request.error);});}
+export async function allHistory(session='',url=''){const database=await db();return new Promise<CaptionRow[]>((resolve,reject)=>{const rows:CaptionRow[]=[];const request=database.transaction('captions').objectStore('captions').index('createdAt').openCursor();request.onsuccess=()=>{const cursor=request.result;if(!cursor){resolve(rows);return;}const row=cursor.value as CaptionRow;if((!session||row.sessionId===session)&&(!url||row.url===url)){const previous=rows.at(-1);if(previous&&olderPageCaptionDuplicate(previous,row))rows[rows.length-1]=row;else if(previous){const joined=stitchHistory(previous,row);if(joined)rows[rows.length-1]=joined;else rows.push(row);}else rows.push(row);}cursor.continue();};request.onerror=()=>reject(request.error);});}
 export type ExportFormat='txt'|'md'|'srt'|'vtt';
 function timestamp(seconds:number,separator:string){const ms=Math.max(0,Math.round(seconds*1000));return`${String(Math.floor(ms/3600000)).padStart(2,'0')}:${String(Math.floor(ms/60000)%60).padStart(2,'0')}:${String(Math.floor(ms/1000)%60).padStart(2,'0')}${separator}${String(ms%1000).padStart(3,'0')}`;}
 export function exportCaptions(rows:CaptionRow[],format:ExportFormat){
