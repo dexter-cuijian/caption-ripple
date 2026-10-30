@@ -71,7 +71,7 @@ if(!(globalThis as any)[sentinel]){
    const stable=visiblePageCaption();if(!ownsPage()||!stable||stable.text!==caption.text||selected!==video||!enabled)return;
    pageCaptionText=stable.text;pageCaptionAt=Date.now();
    const identity=pageCaptionRevisions.observe(stable.text,pageCaptionAt);
-   void send('background','page-caption',{videoId:ids.get(video),caption:{...stable,mediaTime:video.currentTime,...identity}}).catch(()=>{});
+   void send('background','page-caption',{videoId:ids.get(video),caption:{...stable,text:identity.mergedText,mediaTime:video.currentTime,segmentId:identity.segmentId,revision:identity.revision}}).catch(()=>{});
   },250);
  }
  function scan(){

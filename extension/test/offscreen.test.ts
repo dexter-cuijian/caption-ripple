@@ -18,17 +18,37 @@ beforeEach(async()=>{
  vi.stubGlobal('chrome',{runtime:{onMessage:{addListener:(fn:any)=>listener=fn},sendMessage:async(message:any)=>{runtimeMessages.push(message);if(message.kind==='panel-translate')return new Promise(resolve=>{translateFinish=resolve;});return{};},getURL:(s:string)=>s}});
  vi.stubGlobal('navigator',{mediaDevices:{getUserMedia:async()=>{const track={stop:vi.fn(),onended:null};tracks.push(track);return{getTracks:()=>[track],getAudioTracks:()=>[track]};}}});
  vi.stubGlobal('AudioContext',FakeContext);vi.stubGlobal('AudioWorkletNode',FakeNode);vi.stubGlobal('WebSocket',FakeSocket);
- vi.stubGlobal('Worker',class {onmessage:any;onerror:any;messages:any[]=[];constructor(public url:string){workers.push(this);}postMessage(message:any){this.messages.push(message);}terminate(){} });
+ vi.stubGlobal('Worker',class {onmessage:any;onerror:any;messages:any[]=[];terminate=vi.fn();constructor(public url:string){workers.push(this);}postMessage(message:any){this.messages.push(message);} });
  await import('../src/offscreen');
 });
 test('browser mode starts without a socket and routes worker source through existing subtitle pipeline',async()=>{
  await start({currentTime:1,observedAt:Date.now(),playbackRate:1,paused:false},{config:{recognitionEngine:'browser',targetLanguage:'zh'}});
  expect(sockets).toHaveLength(0);expect(workers).toHaveLength(1);
- workers[0].onmessage({data:{kind:'ready'}});packet();
+ workers[0].onmessage({data:{kind:'ready'}});workers[0].onmessage({data:{kind:'reset-done',sessionId:'session',epoch:0}});packet();
  expect(workers[0].messages.some((message:any)=>message.kind==='pcm')).toBe(true);
  workers[0].onmessage({data:{kind:'subtitle',event:{type:'subtitle',sessionId:'session',epoch:0,segmentId:'0',revision:1,phase:'interim',sourceText:'HELLO',sourceLanguage:'en',engine:'sherpa-onnx/wasm-zipformer-zh-en'}}});
  expect(runtimeMessages.some(message=>message.kind==='subtitle'&&message.event.sourceText==='HELLO')).toBe(true);
  await command('stop');
+});
+test('browser decoder backlog is bounded and starts a new epoch when decoding falls behind',async()=>{
+ await start({currentTime:1,observedAt:Date.now(),playbackRate:1,paused:false},{config:{recognitionEngine:'browser'}});
+ workers[0].onmessage({data:{kind:'ready'}});workers[0].onmessage({data:{kind:'reset-done',sessionId:'session',epoch:0}});
+ for(let i=0;i<51;i++)packet();
+ expect(workers[0].terminate).toHaveBeenCalledOnce();
+ expect(workers).toHaveLength(2);
+ expect(runtimeMessages.some(message=>message.kind==='epoch'&&message.epoch===1)).toBe(true);
+ await command('stop');
+});
+test('browser recognition resumes after webpage captions disappear',async()=>{
+ vi.spyOn(Date,'now').mockReturnValue(100000);
+ await start({currentTime:1,observedAt:100000,playbackRate:1,paused:false},{config:{recognitionEngine:'browser'}});
+ workers[0].onmessage({data:{kind:'ready'}});workers[0].onmessage({data:{kind:'reset-done',sessionId:'session',epoch:0}});
+ await command('page-caption',{caption:{text:'Visible caption.',language:'en',mediaTime:1,segmentId:'page-1'}});
+ vi.mocked(Date.now).mockReturnValue(107000);packet();
+ expect(workers[0].messages).toContainEqual({kind:'reset',sessionId:'session',epoch:1});
+ workers[0].onmessage({data:{kind:'reset-done',sessionId:'session',epoch:1}});packet();
+ expect(workers[0].messages.some((message:any)=>message.kind==='pcm'&&message.epoch===1)).toBe(true);
+ await command('stop');vi.restoreAllMocks();
 });
 test('same offscreen document Stop then Start creates fresh packet counters and context anchor',async()=>{
  vi.spyOn(Date,'now').mockReturnValue(100000);

@@ -34,6 +34,10 @@ export const saveFinal=(event:any)=>mutate(rowKey(event),existing=>mergeFinal(ex
 export const saveInterim=(event:any)=>mutate(rowKey(event),existing=>mergeInterim(existing,event));
 export const saveTranslation=(event:TranslationEvent)=>mutate([event.sessionId,event.epoch,event.segmentId],row=>mergeTranslation(row,event));
 export const failTranslation=(event:any)=>mutate([event.sessionId,event.epoch,event.segmentId],row=>row&&row.revision===event.sourceRevision&&row.targetLanguage===event.targetLanguage&&!row.translatedText?{...row,translationState:'error',translationError:event.error}:row);
+/** An interrupted hypothesis remains searchable, but is no longer shown as live recognition. */
+export async function retireInterims(sessionId?:string,epoch?:number){
+ const database=await db();return new Promise<void>((resolve,reject)=>{const tx=database.transaction('captions','readwrite');const request=tx.objectStore('captions').openCursor();request.onsuccess=()=>{const cursor=request.result;if(!cursor)return;const row=cursor.value as CaptionRow;if((!sessionId||row.sessionId===sessionId)&&(epoch===undefined||row.epoch===epoch)&&row.phase==='interim')cursor.update({...row,phase:'interrupted',translationState:'cancelled'});cursor.continue();};tx.oncomplete=()=>resolve();tx.onerror=()=>reject(tx.error);});
+}
 export async function cancelPending(sessionId:string,epoch:number,reason:string){
  const database=await db();return new Promise<void>((resolve,reject)=>{const tx=database.transaction('captions','readwrite');const request=tx.objectStore('captions').openCursor();request.onsuccess=()=>{const cursor=request.result;if(!cursor)return;const row=cursor.value as CaptionRow;if(row.sessionId===sessionId&&row.epoch===epoch&&['pending','error'].includes(row.translationState??''))cursor.update({...row,translationState:'cancelled',translationError:reason});cursor.continue();};tx.oncomplete=()=>resolve();tx.onerror=()=>reject(tx.error);});
 }

@@ -20,9 +20,10 @@ try{
 }catch(error){worker.postMessage({kind:'error',message:String(error)});}
 worker.onmessage=({data}:MessageEvent)=>{
  try{
-  if(data.kind==='reset'){sessionId=data.sessionId;epoch=data.epoch;session?.reset();return;}
+  if(data.kind==='reset'){sessionId=data.sessionId;epoch=data.epoch;session?.reset();worker.postMessage({kind:'reset-done',sessionId,epoch});return;}
   if(data.kind!=='pcm'||!session||data.sessionId!==sessionId||data.epoch!==epoch)return;
   const events=session.accept(new Int16Array(data.pcm),{capturedAt:data.capturedAt,mediaTime:data.mediaTime});
   for(const event of events)worker.postMessage({kind:'subtitle',event:{...event,type:'subtitle',sessionId,epoch}});
+  worker.postMessage({kind:'processed',sessionId,epoch});
  }catch(error){worker.postMessage({kind:'error',message:String(error)});}
 };
