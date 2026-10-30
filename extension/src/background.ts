@@ -2,7 +2,7 @@ import{emptyGlossary}from'./glossary';
 import{canSeekMedia}from'./media';
 import {VideoRegistry} from './registry';
 import {saveFinal,saveInterim,saveTranslation,failTranslation,cancelPending,persistReceivedFinal,markProofreading}from'./history';
-import {defaults,initialState,send,type State} from './shared';
+import {defaults,initialState,requiresCompanionToken,send,type Config,type State} from './shared';
 import {parseSubtitleFile,type ImportedCue} from './subtitle-import';
 let state:State={...initialState},videos=new VideoRegistry(),selected='',manual=false;
 let imported:{cues:ImportedCue[];videoId:string;mediaUrl?:string;translations:Map<number,any>}|undefined;
@@ -62,7 +62,8 @@ async function start(expectedTabId?:number){
  const[tab]=await chrome.tabs.query({active:true,currentWindow:true});
  if(!tab?.id||!/^https?:\/\//.test(tab.url??''))throw new Error('请在目标 HTTP/HTTPS 页面点击工具栏中的扩展图标授权，再从侧栏启动');
  if(expectedTabId!==undefined&&expectedTabId!==tab.id)throw new Error('当前页面已切换，请确认侧栏显示的目标页后重新启动');
- const{token}=await chrome.storage.local.get('token');if(!token)throw new Error('请先在设置粘贴 .runtime/token 配对令牌');
+ const config=await chrome.storage.sync.get(defaults) as Config;
+ const{token}=await chrome.storage.local.get('token');if(requiresCompanionToken(config)&&!token)throw new Error('请先在设置粘贴 .runtime/token 配对令牌');
  // Verify page access BEFORE acquiring/muting tab audio.
  await chrome.scripting.executeScript({target:{tabId:tab.id},func:()=>true}).catch(()=>{throw new Error('尚未授权此页面。请点击该页面工具栏中的扩展图标，再启动。');});
  await clearImport();
@@ -72,7 +73,7 @@ async function start(expectedTabId?:number){
  state={...initialState,tabId:tab.id,phase:'connecting',sessionId:crypto.randomUUID(),captureUrl:tab.url,captureTitle:tab.title};
  const streamId=await chrome.tabCapture.getMediaStreamId({targetTabId:tab.id});await offscreen();
  await chrome.scripting.executeScript({target:{tabId:tab.id,allFrames:true},files:['content.js']}).catch(async()=>{await chrome.scripting.executeScript({target:{tabId:tab.id!},files:['content.js']});});
- await broadcast('inspect');const response=await send('offscreen','start',{streamId,sessionId:state.sessionId,token,config:await chrome.storage.sync.get(defaults),glossary:(await chrome.storage.local.get({glossary:emptyGlossary})).glossary,scopeUrl:tab.url,video:state.video});
+ await broadcast('inspect');const response=await send('offscreen','start',{streamId,sessionId:state.sessionId,token,config,glossary:(await chrome.storage.local.get({glossary:emptyGlossary})).glossary,scopeUrl:tab.url,video:state.video});
  if(!response?.ok)throw new Error(response?.error||'无法启动音频采集');await broadcast('epoch',{sessionId:state.sessionId,epoch:0});
 }
 async function importSubtitles(message:any){

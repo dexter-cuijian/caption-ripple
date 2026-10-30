@@ -7,7 +7,7 @@ import {FinalTranslator,LiveTranslator,translatorAPI,type NativeTranslator} from
 import {RevisionGate,terminalClose} from './core';
 import {defaults, initialState,send, type Config,type VideoInfo} from './shared';
 let context:AudioContext|undefined,stream:MediaStream|undefined,source:MediaStreamAudioSourceNode|undefined,worklet:AudioWorkletNode|undefined,silent:GainNode|undefined;
-let socket:WebSocket|undefined,retry:ReturnType<typeof setTimeout>|undefined,active=false,accepted=false,attempt=0;
+let socket:WebSocket|undefined,asrWorker:Worker|undefined,retry:ReturnType<typeof setTimeout>|undefined,active=false,accepted=false,attempt=0;
 let sessionId='',epoch=0,seq=0,sampleStart=0,anchor:number|null=null,contextWall=0;
 let latestSource:any;let glossary:GlossaryState=emptyGlossary,captureScopeUrl='';
 let pageCaptionUntil=0,pageCaptionMode=false;
@@ -35,6 +35,7 @@ async function translateDraft(text:string,sourceLanguage:string,targetLanguage:s
  const requestId=crypto.randomUUID();const abort=()=>{void send('background','cancel-panel-translation',{requestId}).catch(()=>{});};signal?.addEventListener('abort',abort,{once:true});
  try{const response=await withDeadline(()=>send('background','panel-translate',{requestId,text:protectedTerms.text,sourceLanguage,targetLanguage}),3000,signal,abort);if(response?.ok){draftEngine='chrome-translator/panel';publish({translationContext:'panel'});return restoreTerms(response.text,protectedTerms);}}catch(error){if(signal?.aborted)throw error;}finally{signal?.removeEventListener('abort',abort);}
  }}
+ if(config.recognitionEngine==='browser')throw new Error('Chrome 本地翻译不可用；浏览器模式不会连接本地服务。原文已保存。');
  try{const result=await local.translate(text,sourceLanguage,targetLanguage,signal);draftEngine='local-hy-mt2';publish({translationContext:'local',translationError:undefined,glossaryStatus:matches.length?'已由本机处理指定术语；未经人工核验':undefined});return result;}catch(error){if(matches.length)throw new Error(`术语保护未完成，保留原文名称；本机回退失败：${String(error)}`);throw error;}
 }
 const translations=new FinalTranslator({translate:translateDraft},translationCompleted,event=>{
@@ -57,14 +58,14 @@ function receiveSubtitle(data:any){
  data.displaySourceText=displaySource(data.sourceText,data.phase,data.splitReason);latestSource=data;
  const page=subtitlePage(data.displaySourceText);
  const keepTranslation=data.phase==='interim'&&previous?.phase==='interim'&&previous.segmentId===data.segmentId&&data.sourceText.startsWith(previous.sourceText);
- publish({latestText:data.sourceText,latestDisplayText:data.displaySourceText,latestTranslation:keepTranslation?state.latestTranslation:'',latestTranslationRevision:0});
+ publish({latestText:data.sourceText,latestDisplayText:data.displaySourceText,latestCaption:{sessionId:data.sessionId,epoch:data.epoch,segmentId:data.segmentId,revision:data.revision,phase:data.phase,sourceText:data.sourceText,displaySourceText:data.displaySourceText,mediaTime:data.mediaTime??null,createdAt:data.createdAt??Date.now()},latestTranslation:keepTranslation?state.latestTranslation:'',latestTranslationRevision:0});
  if(data.phase==='final')liveTranslations.finalize(data);
  else if(config.translationEngine!=='off')liveTranslations.observe(data,config.targetLanguage,page.text,page.index);
  const targetLanguage=config.targetLanguage;
  void send('background','subtitle',{event:{...data,targetLanguage,translationState:config.translationEngine==='off'?'disabled':undefined}}).then(response=>{
   if(response?.error)throw new Error(response.error);
   if(data.phase==='final'&&config.translationEngine!=='off'){
-   translations.enqueue(data,targetLanguage);if(config.proofreading&&data.sourceLanguage!==targetLanguage)proofreader.observe(data,targetLanguage);
+   translations.enqueue(data,targetLanguage);if(config.proofreading&&config.recognitionEngine==='companion'&&data.sourceLanguage!==targetLanguage)proofreader.observe(data,targetLanguage);
    publish({languageLock:translations.language.locked??undefined});
   }
  }).catch(error=>publish({translationError:`字幕保存失败：${String(error)}`}));
@@ -73,9 +74,22 @@ function receiveSubtitle(data:any){
 function reset(reason:string){
  pageCaptionMode=false;pageCaptionUntil=0;liveTranslations.reset(sessionId,epoch+1);
  latestSource=undefined;const previousEpoch=epoch;epoch++;revisions.reset(sessionId,epoch);translations.reset(sessionId,epoch);proofreader.reset(sessionId,epoch);seq=0;sampleStart=0;anchor=null;accepted=false;
- publish({latestText:'',latestTranslation:'',translationError:undefined,latestTranslationRevision:0,latestDisplayText:'',message:reason});
+ publish({latestText:'',latestCaption:undefined,latestTranslation:'',translationError:undefined,latestTranslationRevision:0,latestDisplayText:'',message:reason});
  if(socket?.readyState===WebSocket.OPEN)socket.send(JSON.stringify({type:'reset',sessionId,epoch,mediaTime:video?.currentTime??null,sourceLanguage:config.sourceLanguage,hotwords:hotwordsFor(glossary.entries,config.sourceLanguage,scopeUrl()),reason}));
+ asrWorker?.postMessage({kind:'reset',sessionId,epoch});
  void send('background','epoch',{sessionId,epoch,previousEpoch}).catch(()=>{});
+}
+function connectBrowser(){
+ publish({phase:'connecting',message:'正在加载扩展内语音模型（首次可能需要较长时间）',asrEngine:'sherpa-onnx/wasm-zipformer-zh-en'});
+ const worker=new Worker(chrome.runtime.getURL('asr-worker.js'));asrWorker=worker;
+ worker.onmessage=({data})=>{
+  if(asrWorker!==worker||!active)return;
+  if(data.kind==='ready'){accepted=true;worker.postMessage({kind:'reset',sessionId,epoch});publish({phase:'running',message:'正在使用扩展内语音识别'});}
+  if(data.kind==='loading')publish({message:data.message});
+  if(data.kind==='subtitle'&&!pageCaptionMode&&data.event?.sessionId===sessionId&&data.event?.epoch===epoch)receiveSubtitle(data.event);
+  if(data.kind==='error'){accepted=false;publish({phase:'error',message:`扩展内语音识别失败：${data.message}`});}
+ };
+ worker.onerror=event=>{accepted=false;publish({phase:'error',message:`扩展内语音识别错误：${event.message}`});};
 }
 function connect(){
  if(!active)return;
@@ -105,7 +119,7 @@ function connect(){
 async function stop(){
  pageCaptionMode=false;pageCaptionUntil=0;
  latestSource=undefined;active=false;accepted=false;clearTimeout(retry);translations.reset('',-1);liveTranslations.reset('',-1);proofreader.reset('',-1);
- if(socket?.readyState===WebSocket.OPEN)socket.send(JSON.stringify({type:'stop',sessionId,epoch}));socket?.close();socket=undefined;
+ if(socket?.readyState===WebSocket.OPEN)socket.send(JSON.stringify({type:'stop',sessionId,epoch}));socket?.close();socket=undefined;asrWorker?.terminate();asrWorker=undefined;
  if(worklet)worklet.port.onmessage=null;
  for(const node of [worklet,source,silent])try{node?.disconnect();}catch{}
  stream?.getTracks().forEach(t=>t.stop());
@@ -126,16 +140,18 @@ async function start(message:any){
  source.connect(worklet);worklet.connect(silent);silent.connect(context.destination);
  worklet.port.onmessage=({data})=>{
   publish({rms:data.rms,outputConnected:true});
-  if(pageCaptionMode){if(Date.now()<pageCaptionUntil)return;reset('网页字幕中断，切回语音识别');if(socket?.readyState!==WebSocket.OPEN)publish({phase:'error',message:'网页字幕已结束，识别服务未连接；请检查原文语言与模型'});return;}
-  if(!accepted||video?.paused||socket?.readyState!==WebSocket.OPEN)return;
-  if(socket.bufferedAmount>64000){reset('音频发送积压，重新同步');return;}
+  if(pageCaptionMode){if(Date.now()<pageCaptionUntil)return;reset('网页字幕中断，切回语音识别');if(config.recognitionEngine==='companion'&&socket?.readyState!==WebSocket.OPEN)publish({phase:'error',message:'网页字幕已结束，识别服务未连接；请检查原文语言与模型'});return;}
+  if(!accepted||video?.paused)return;
+  if(config.recognitionEngine==='companion'&&socket?.readyState!==WebSocket.OPEN)return;
+  if(config.recognitionEngine==='companion'&&socket!.bufferedAmount>64000){reset('音频发送积压，重新同步');return;}
   if(anchor===null)anchor=contextWall+data.contextTime*1000-100;
   const capturedAt=anchor+(sampleStart+1600)/16;
   const mediaTime=video?.currentTime==null?null:video.currentTime+(capturedAt-video.observedAt)/1000*video.playbackRate;
-  socket.send(JSON.stringify({type:'clock',sessionId,epoch,seq:seq++,capturedAt,sampleStart,mediaTime,playbackRate:video?.playbackRate??1,paused:false}));
-  socket.send(data.pcm);sampleStart+=1600;publish({framesSent:state.framesSent+1600});
+  if(config.recognitionEngine==='browser')asrWorker?.postMessage({kind:'pcm',sessionId,epoch,pcm:data.pcm,capturedAt,mediaTime},[data.pcm]);
+  else{socket!.send(JSON.stringify({type:'clock',sessionId,epoch,seq:seq++,capturedAt,sampleStart,mediaTime,playbackRate:video?.playbackRate??1,paused:false}));socket!.send(data.pcm);}
+  sampleStart+=1600;publish({framesSent:state.framesSent+1600});
  };
- stream.getAudioTracks()[0].onended=()=>{void stop();};active=true;publish({outputConnected:true});connect();
+ stream.getAudioTracks()[0].onended=()=>{void stop();};active=true;publish({outputConnected:true});if(config.recognitionEngine==='browser')connectBrowser();else connect();
  }catch(error){await stop();throw error;}
 }
 chrome.runtime.onMessage.addListener((message,_sender,reply)=>{
