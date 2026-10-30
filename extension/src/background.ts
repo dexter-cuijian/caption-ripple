@@ -1,5 +1,5 @@
 import{emptyGlossary}from'./glossary';
-import{canSeekMedia,captureResetReason}from'./media';
+import{canSeekMedia,captureResetReason,retainCaptionOnReset}from'./media';
 import {VideoRegistry} from './registry';
 import {saveFinal,saveInterim,saveTranslation,failTranslation,cancelPending,retireInterims,persistReceivedFinal,markProofreading}from'./history';
 import {defaults,initialState,requiresCompanionToken,send,type Config,type State} from './shared';
@@ -118,7 +118,7 @@ chrome.runtime.onMessage.addListener((message,sender,reply)=>{
   if(message.kind==='panel-translate')return await translateInPanel(message);
   if(message.kind==='retry-translation')return await send('offscreen','retry-translation');
   if(message.kind==='state'&&!imported&&message.state?.sessionId===state.sessionId)state={...state,...message.state,tabId:state.tabId,video:state.video,videos:state.videos,captureUrl:state.captureUrl,captureTitle:state.captureTitle};
-  if(message.kind==='epoch'){retire(message.sessionId,message.previousEpoch??state.epoch);interimSavedAt.clear();cancelPanelTranslations('识别段重置，已取消旧翻译');await retireHistory(message.sessionId,message.previousEpoch??state.epoch,'识别段重置，已取消旧翻译');state.epoch=message.epoch;state.latestTranslation='';await broadcast('epoch',{sessionId:message.sessionId,epoch:message.epoch});}
+  if(message.kind==='epoch'){retire(message.sessionId,message.previousEpoch??state.epoch);interimSavedAt.clear();cancelPanelTranslations('识别段重置，已取消旧翻译');await retireHistory(message.sessionId,message.previousEpoch??state.epoch,'识别段重置，已取消旧翻译');state.epoch=message.epoch;if(!retainCaptionOnReset(message.reason))state.latestTranslation='';await broadcast('epoch',{sessionId:message.sessionId,epoch:message.epoch,reason:message.reason});}
   if(message.kind==='subtitle'&&message.event.sessionId===state.sessionId&&message.event.epoch===state.epoch){
    const event=message.event,media=state.video,pageUrl=state.captureUrl,pageTitle=state.captureTitle;
    const isCurrent=()=>event.sessionId===state.sessionId&&event.epoch===state.epoch&&state.phase!=='idle'&&!retired.has(epochKey(event.sessionId,event.epoch));
