@@ -5,4 +5,8 @@ export function canSeekMedia(row:any,current:any,candidates:any[]=[]){
  if(!/^https?:\/\//.test(row.mediaUrl))return false;
  return candidates.filter(video=>video.url===row.url&&video.mediaUrl===row.mediaUrl).length===1;
 }
+/** Paired media events describe one transition; reset only when the old ASR context is invalid. */
+export function captureResetReason(reason:string):string|undefined{
+ return ['pause','seeking','ratechange','emptied'].includes(reason)?reason:undefined;
+}
 export function mediaLabel(row:any){const time=row.live?(row.start??0):row.mediaTime;if(time===null||!Number.isFinite(time))return'音频';const formatted=`${String(Math.floor(time/60)).padStart(2,'0')}:${String(Math.floor(time%60)).padStart(2,'0')}`;return row.live?`直播 +${formatted}`:formatted;}

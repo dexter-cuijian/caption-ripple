@@ -14,7 +14,7 @@
 
 - [ ] Establish reproducible English and Chinese reference clips, including the reported YouTube cases; measure browser ASR output, names, punctuation, segment length, and translation against references. Fix only evidenced defects; add focused regression tests.
 - [ ] Rebuild and reload the installed Chrome extension. Verify real page captions and ASR fallback, history de-duplication, subtitle import, pause, seek, fullscreen, translation, and audible playback. Record screenshots and failures.
-- [ ] Test human speech on three distinct news-site domains. Run one installed extension capture for two actual hours and record start/end, caption progress, delay, memory/CPU, audio passthrough, and connection/worker recovery.
+- [ ] Test human speech on three distinct news-site domains. Run one installed extension capture for 30 actual minutes and record start/end, caption progress, delay, memory/CPU, silent speaker output, and connection/worker recovery.
 - [ ] From a clean checkout, verify dependency and model checksums, build the extension ZIP, audit license/notice and privacy/secrets, install and use it without Node, and verify the public download.
 - [ ] Only after all preceding checks pass, push the public-safe source, publish the stable GitHub release, and verify its tag and artifact. Otherwise leave the release as preview and report the exact unmet gates.
 
