@@ -4,7 +4,7 @@
 
 ## 安装和运行
 
-直接安装：从 [GitHub Releases](https://github.com/dexter-cuijian/caption-ripple/releases) 下载 `CaptionRipple-extension-0.1.0-preview-clean.zip`，解压后在 `chrome://extensions` 启用开发者模式，点“加载已解压的扩展程序”，选择解压得到的 `extension` 文件夹。无需安装 Node 或启动本地服务。首次启动需要等待内置模型载入内存。
+直接安装：从 [GitHub Releases](https://github.com/dexter-cuijian/caption-ripple/releases) 下载 `CaptionRipple-extension-0.1.0-preview-clean.zip`，解压后在 `chrome://extensions` 启用开发者模式，点“加载已解压的扩展程序”，选择解压得到的 `extension` 文件夹。无需安装 Node 或启动本地服务。首次启动需要等待内置模型载入内存。这个预览 ZIP 是旧构建，不包含仓库最新的显示与播放同步修复；稳定版安装包仍在验收中。
 
 从源码构建：
 
