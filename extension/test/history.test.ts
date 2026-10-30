@@ -1,7 +1,23 @@
 import 'fake-indexeddb/auto';
 import{beforeEach,expect,test,vi}from'vitest';
+import{pageMediaMetadata,canSeekMedia}from'../src/media';
 const row=(id='a',revision=1)=>({phase:'final',sessionId:'persistent',epoch:0,segmentId:id,revision,sourceText:'没有增长20%',sourceLanguage:'zh',targetLanguage:'en',mediaTime:10,start:0,end:1,url:'https://example.com/news',title:'News',createdAt:Number(id)||1,engine:'test'});
 beforeEach(async()=>{vi.resetModules();});
+test('iframe captions belong to the top page while retaining a safe frame-specific seek target',async()=>{
+ const page='https://news.test/story',frame='https://player.test/embed/1',mediaUrl='https://cdn.test/clip.mp4';
+ const video={id:'iframe-video',url:frame,mediaUrl,title:'Clip',live:false};
+ const metadata=pageMediaMetadata(page,'Story',video);
+ expect(metadata).toMatchObject({url:page,title:'Story',frameUrl:frame,mediaUrl});
+ const history=await import('../src/history');
+ const saved={...row('iframe'),sessionId:'iframe-page',...metadata,videoId:video.id};
+ await history.saveFinal(saved);
+ expect((await history.queryHistory({url:page})).rows.some(item=>item.sessionId==='iframe-page')).toBe(true);
+ await history.saveFinal({...saved,segmentId:'legacy-frame-url',url:frame,frameUrl:undefined,createdAt:2});
+ expect((await history.queryHistory({urls:[page,frame]})).rows.filter(item=>item.sessionId==='iframe-page')).toHaveLength(2);
+ expect(canSeekMedia(saved,video,[video],page)).toBe(true);
+ expect(canSeekMedia(saved,video,[video],'https://other.test/story')).toBe(false);
+ await history.closeHistory();
+});
 test('final source and translation patch survive closing and reopening connection as one row',async()=>{
  const history=await import('../src/history');await history.saveFinal(row());await history.saveTranslation({sessionId:'persistent',epoch:0,segmentId:'a',sourceRevision:1,targetLanguage:'en',text:'No growth of 20%',engine:'chrome',startedAt:1,completedAt:2});
  await history.closeHistory();const result=await history.queryHistory({session:'persistent'});expect(result.total).toBe(1);expect(result.rows[0].translatedText).toBe('No growth of 20%');await history.closeHistory();
