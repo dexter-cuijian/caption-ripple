@@ -21,12 +21,10 @@ function useTypedText(target:string,identity:string){
  return shown;
 }
 function CompactRow({row}:{row:CaptionRow}){
- const[expanded,setExpanded]=useState(false);
  const source=displaySource(row.displaySourceText??row.sourceText,'interim');
- const preview=row.phase==='interim'?subtitlePage(source).text:source;
  const time=row.mediaTime==null?new Date(row.createdAt).toLocaleTimeString():mediaLabel(row);
  const status=row.phase==='interim'?'识别中':row.phase==='interrupted'?'未定稿':row.engine==='page-caption'?'网页字幕':row.engine==='subtitle-import'?'导入字幕':visibleTranslation(row)?'已翻译':row.translationState==='same-language'?'无需翻译':'语音识别';
- return <li className={expanded?'expanded':''}><div className="compact-meta"><span>{time}</span><span>{status}</span><button className="compact-toggle" aria-expanded={expanded} onClick={()=>setExpanded(value=>!value)}>{expanded?'收起':'展开全文'}</button></div><p className="compact-source">{expanded?source:preview}</p>{visibleTranslation(row)&&<p className="compact-translation">{row.translatedText}</p>}</li>;
+ return <li><div className="compact-meta"><span>{time}</span><span>{status}</span></div><p className="compact-source">{source}</p>{visibleTranslation(row)&&<p className="compact-translation">{row.translatedText}</p>}</li>;
 }
 function SidePanel(){
  const[state,setState]=useState<State>(initialState),[config,setConfig]=useState<Config>(defaults),[token,setToken]=useState(''),[error,setError]=useState(''),[busy,setBusy]=useState(false),[settings,setSettings]=useState(false);
