@@ -100,8 +100,8 @@ export async function cancelPending(sessionId:string,epoch:number,reason:string)
 }
 export async function queryHistory({search='',session='',url='',urls=[],page=0,pageSize=100}:{search?:string;session?:string;url?:string;urls?:string[];page?:number;pageSize?:number}={}){
  const database=await db();return new Promise<{rows:CaptionRow[];total:number;sessions:Array<{id:string;title:string}>}>((resolve,reject)=>{
- const tx=database.transaction('captions'),request=tx.objectStore('captions').index('createdAt').openCursor(null,'prev');const rows:CaptionRow[]=[],sessions=new Map<string,string>();let total=0,lastAccepted:CaptionRow|undefined,pending:CaptionRow|undefined;const needle=search.toLocaleLowerCase(),limit=Math.min(100,Math.max(1,pageSize)),offset=Math.max(0,page)*limit;
- const flush=()=>{if(!pending)return;const row=pending;pending=undefined;if(!needle||`${row.sourceText}\n${row.translatedText??''}\n${row.title}`.toLocaleLowerCase().includes(needle)){if(total>=offset&&rows.length<limit)rows.push(row);total++;}};
+ const tx=database.transaction('captions'),request=tx.objectStore('captions').index('createdAt').openCursor(null,'prev');const rows:CaptionRow[]=[],sessions=new Map<string,string>();let total=0,lastAccepted:CaptionRow|undefined,pending:CaptionRow|undefined;const needle=search.trim().toLocaleLowerCase(),limit=Math.min(100,Math.max(1,pageSize)),offset=Math.max(0,page)*limit;
+ const flush=()=>{if(!pending)return;const row=pending;pending=undefined;if(!needle||`${row.sourceText}\n${row.translatedText??''}\n${row.title}\n${row.url}`.toLocaleLowerCase().includes(needle)){if(total>=offset&&rows.length<limit)rows.push(row);total++;}};
  request.onsuccess=()=>{const cursor=request.result;if(!cursor){flush();return;}const row=cursor.value as CaptionRow;if(sessions.size<100)sessions.set(row.sessionId,row.title||row.url||row.sessionId);
  if((!session||row.sessionId===session)&&(!url&&!urls.length||row.url===url||urls.includes(row.url))){
   if(!lastAccepted||!olderPageCaptionDuplicate(row,lastAccepted)){

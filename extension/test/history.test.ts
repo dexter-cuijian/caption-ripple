@@ -41,6 +41,7 @@ test('page recordings list time ranges and scoped deletion preserves other pages
  await history.saveFinal({...one,sessionId:'other',segmentId:'four',url:'https://news.test/b',title:'Article B',createdAt:1_800_000_015_000});
  const pages=await history.listPageRecordings();
  expect(pages.find(page=>page.url==='https://news.test/a')).toMatchObject({count:3,recordings:[{sessionId:'tab-two',count:1},{sessionId:'tab-one',count:2,firstAt:1_800_000_000_000,lastAt:1_800_000_005_000}]});
+ expect((await history.queryHistory({search:'news.test/a'})).total).toBe(3);
  expect(await history.deleteHistoryScope({url:'https://news.test/a',sessionId:'tab-one'})).toBe(2);
  expect((await history.queryHistory({url:'https://news.test/a'})).total).toBe(1);
  expect(await history.deleteHistoryScope({url:'https://news.test/a'})).toBe(1);
