@@ -8,7 +8,7 @@ import browserModel from '../browser-model.lock.json' with {type:'json'};
 const root=fileURLToPath(new URL('../extension/',import.meta.url));
 const outdir=fileURLToPath(new URL('../dist/extension/',import.meta.url));
 await viteBuild({root,build:{outDir:outdir,emptyOutDir:true,rollupOptions:{input:{popup:`${root}popup.html`,sidepanel:`${root}sidepanel.html`,history:`${root}history.html`,offscreen:`${root}offscreen.html`}}}});
-for(const name of ['background','content','worklet','asr-worker']) await esbuild({entryPoints:[`${root}src/${name}.ts`],bundle:true,format:name==='background'?'esm':'iife',target:'chrome116',outfile:`${outdir}${name}.js`,sourcemap:true});
+for(const name of ['background','content','worklet','asr-worker']) await esbuild({entryPoints:[`${root}src/${name}.ts`],bundle:true,format:name==='background'?'esm':'iife',target:'chrome116',outfile:`${outdir}${name}.js`,sourcemap:false});
 await mkdir(outdir,{recursive:true});await copyFile(`${root}manifest.json`,`${outdir}manifest.json`);
 await cp(`${root}icons`,`${outdir}icons`,{recursive:true});
 await cp(`${root}vendor`,`${outdir}vendor`,{recursive:true});
