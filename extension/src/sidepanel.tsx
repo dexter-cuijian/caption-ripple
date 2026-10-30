@@ -8,6 +8,7 @@ import{queryHistory,closeHistory,visibleTranslation,type CaptionRow}from'./histo
 import{compactHistory}from'./compact-history';
 import{translatorAPI,type NativeTranslator}from'./translation';
 import{typewriterStep,liveSubtitleText}from'./typewriter';
+import{mediaLabel}from'./media';
 import'./sidepanel.css';
 function useTypedText(target:string,identity:string){
  const[shown,setShown]=useState(''),current=useRef(''),lastIdentity=useRef(identity);
@@ -23,7 +24,7 @@ function CompactRow({row}:{row:CaptionRow}){
  const[expanded,setExpanded]=useState(false);
  const source=displaySource(row.displaySourceText??row.sourceText,'interim');
  const preview=row.phase==='interim'?subtitlePage(source).text:source;
- const time=row.mediaTime==null?new Date(row.createdAt).toLocaleTimeString():`${Math.floor(row.mediaTime/60).toString().padStart(2,'0')}:${Math.floor(row.mediaTime%60).toString().padStart(2,'0')}`;
+ const time=row.mediaTime==null?new Date(row.createdAt).toLocaleTimeString():mediaLabel(row);
  const status=row.phase==='interim'?'识别中':row.phase==='interrupted'?'未定稿':row.engine==='page-caption'?'网页字幕':row.engine==='subtitle-import'?'导入字幕':visibleTranslation(row)?'已翻译':row.translationState==='same-language'?'无需翻译':'语音识别';
  return <li className={expanded?'expanded':''}><div className="compact-meta"><span>{time}</span><span>{status}</span><button className="compact-toggle" aria-expanded={expanded} onClick={()=>setExpanded(value=>!value)}>{expanded?'收起':'展开全文'}</button></div><p className="compact-source">{expanded?source:preview}</p>{visibleTranslation(row)&&<p className="compact-translation">{row.translatedText}</p>}</li>;
 }
