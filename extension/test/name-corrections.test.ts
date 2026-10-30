@@ -9,6 +9,9 @@ test('corrects the observed Chiang Wan-an homophone before name matching, retain
  expect(event.sourceRaw).toBe('讲万安表示，讲万安今天出席。');
  expect(correctRecognizedNames({sourceText:'蒋万案现身，蒋万事落后十七个百分点',sourceLanguage:'zh'}).sourceText).toBe('蒋万安现身，蒋万安落后十七个百分点');
  expect(correctRecognizedNames({sourceText:'蒋万恩现身',sourceLanguage:'zh'}).sourceText).toBe('蒋万安现身');
+ const observed=correctRecognizedNames({sourceText:'民众直呼讲晚安好帅，蒋万元的选情',sourceLanguage:'zh'});
+ expect(observed.sourceText).toBe('民众直呼蒋万安好帅，蒋万安的选情');
+ expect(observed.sourceRaw).toBe('民众直呼讲晚安好帅，蒋万元的选情');
  expect(matchGlossary(event.sourceText,effectiveGlossaryEntries([]),'zh','en','https://news.test').map(match=>match.entry.target)).toEqual(['Chiang Wan-an','Chiang Wan-an']);
 });
 
