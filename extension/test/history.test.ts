@@ -15,6 +15,24 @@ test('progressive page-caption revisions replace the same history row',async()=>
  expect(result.total).toBe(1);expect(result.rows[0].sourceText).toBe('You know, the first thing you think');
  await history.closeHistory();
 });
+test('history and export join adjacent short ASR fragments before search and pagination',async()=>{
+ const history=await import('../src/history');const base={...row('1'),sessionId:'fragments',engine:'sherpa-onnx/wasm-zipformer-zh-en',targetLanguage:'zh',sourceText:'第',createdAt:1,mediaTime:1,start:0,end:1};
+ await history.saveFinal(base);
+ expect(history.stitchHistory(base,{...base,segmentId:'2',sourceText:'二份民调',createdAt:2,mediaTime:2.2,start:1.2,end:2.2})).toBeDefined();
+ await history.saveFinal({...base,segmentId:'2',sourceText:'二份民调',createdAt:2,mediaTime:2.2,start:1.2,end:2.2});
+ await history.saveFinal({...base,segmentId:'3',sourceText:'另外一段完整报道',createdAt:3,mediaTime:10,start:8,end:10});
+ const first=await history.queryHistory({session:'fragments',pageSize:1});
+ const second=await history.queryHistory({session:'fragments',pageSize:1,page:1});
+ expect(first.total).toBe(2);expect(first.rows[0].sourceText).toBe('另外一段完整报道');
+ expect(second.rows[0].sourceText).toBe('第二份民调');
+ expect((await history.queryHistory({session:'fragments',search:'第二'})).total).toBe(1);
+ expect(history.exportCaptions(await history.allHistory('fragments'),'txt')).toContain('第二份民调');
+ expect(history.stitchHistory(base,{...base,segmentId:'late',sourceText:'二',start:8,end:9,mediaTime:9})).toBeUndefined();
+ expect(history.stitchHistory(base,{...base,segmentId:'loop',sourceText:'二',start:1.2,end:2,mediaTime:0})).toBeUndefined();
+ expect(history.stitchHistory({...base,segmentId:'long-a',sourceText:'这次公布的是第'}, {...base,segmentId:'long-b',sourceText:'二份民调仍在继续',start:1.2,end:2,mediaTime:2} )?.sourceText).toBe('这次公布的是第二份民调仍在继续');
+ expect(history.stitchHistory({...base,engine:'page-caption'},{...base,segmentId:'page-2',engine:'page-caption',sourceText:'二',start:1.2,end:2,mediaTime:2})).toBeUndefined();
+ await history.closeHistory();
+});
 test('retiring an epoch marks unfinished recognition as interrupted and preserves finalized captions',async()=>{
  const history=await import('../src/history');
  const interim={...row('unfinished',2),sessionId:'retire-interim',phase:'interim',sourceText:'Words heard before stop',createdAt:100};

@@ -1,6 +1,6 @@
 import {inScope,type GlossaryEntry} from './glossary';
 /** Explicit, observed ASR name corrections. Keep the original hypothesis in sourceRaw. */
-const chineseNames:ReadonlyArray<readonly [string,string]>=[['讲万安','蒋万安']];
+const chineseNames:ReadonlyArray<readonly [string,string]>=[['讲万安','蒋万安'],['蒋万案','蒋万安'],['蒋万事','蒋万安'],['蒋万恩','蒋万安']];
 
 export function correctRecognizedNames<T extends {sourceText:string;sourceLanguage?:string;sourceRaw?:string}>(event:T,entries:GlossaryEntry[]=[],url=''):T&{sourceRaw:string}{
  const raw=event.sourceRaw??event.sourceText;
