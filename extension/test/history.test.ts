@@ -18,6 +18,20 @@ test('iframe captions belong to the top page while retaining a safe frame-specif
  expect(canSeekMedia(saved,video,[video],'https://other.test/story')).toBe(false);
  await history.closeHistory();
 });
+test('deleting a displayed caption removes every stitched fragment and clearing removes all sessions',async()=>{
+ const history=await import('../src/history');const session='delete-options';
+ const first={...row('first'),sessionId:session,sourceText:'第',createdAt:101,mediaTime:1,start:0,end:1,engine:'sherpa-onnx/wasm-zipformer-zh-en',targetLanguage:'zh'};
+ const second={...first,segmentId:'second',sourceText:'二份民调',createdAt:102,mediaTime:2,start:1.2,end:2};
+ const keep={...row('keep'),sessionId:session,createdAt:103};
+ await history.saveFinal(first);await history.saveFinal(second);await history.saveFinal(keep);
+ const shown=(await history.queryHistory({session})).rows.find(item=>item.sourceText==='第二份民调');
+ expect(shown?.fragments).toHaveLength(2);
+ expect(await history.deleteHistoryRows([shown!])).toBe(2);
+ expect((await history.queryHistory({session})).rows.map(item=>item.segmentId)).toEqual(['keep']);
+ expect(await history.clearHistory()).toBeGreaterThanOrEqual(1);
+ expect((await history.queryHistory()).total).toBe(0);
+ await history.closeHistory();
+});
 test('final source and translation patch survive closing and reopening connection as one row',async()=>{
  const history=await import('../src/history');await history.saveFinal(row());await history.saveTranslation({sessionId:'persistent',epoch:0,segmentId:'a',sourceRevision:1,targetLanguage:'en',text:'No growth of 20%',engine:'chrome',startedAt:1,completedAt:2});
  await history.closeHistory();const result=await history.queryHistory({session:'persistent'});expect(result.total).toBe(1);expect(result.rows[0].translatedText).toBe('No growth of 20%');await history.closeHistory();

@@ -54,6 +54,20 @@ export const saveFinal=(event:any)=>mutate(rowKey(event),existing=>mergeFinal(ex
 export const saveInterim=(event:any)=>mutate(rowKey(event),existing=>mergeInterim(existing,event));
 export const saveTranslation=(event:TranslationEvent)=>mutate([event.sessionId,event.epoch,event.segmentId],row=>mergeTranslation(row,event));
 export const failTranslation=(event:any)=>mutate([event.sessionId,event.epoch,event.segmentId],row=>row&&row.revision===event.sourceRevision&&row.targetLanguage===event.targetLanguage&&!row.translatedText?{...row,translationState:'error',translationError:event.error}:row);
+/** A displayed row can contain several stored ASR fragments. Delete them together. */
+export async function deleteHistoryRows(rows:CaptionRow[]){
+ const keys=[...new Map(rows.flatMap(row=>(row.fragments??[row]).map(part=>[JSON.stringify(rowKey(part)),rowKey(part)] as const))).values()];
+ if(!keys.length)return 0;
+ const database=await db();return new Promise<number>((resolve,reject)=>{let deleted=0;const tx=database.transaction('captions','readwrite'),store=tx.objectStore('captions');
+  for(const key of keys){const request=store.get(key);request.onsuccess=()=>{if(request.result!==undefined){store.delete(key);deleted++;}};}
+  tx.oncomplete=()=>resolve(deleted);tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error);
+ });
+}
+export async function clearHistory(){
+ const database=await db();return new Promise<number>((resolve,reject)=>{let deleted=0;const tx=database.transaction('captions','readwrite'),store=tx.objectStore('captions'),count=store.count();
+  count.onsuccess=()=>{deleted=count.result;store.clear();};tx.oncomplete=()=>resolve(deleted);tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error);
+ });
+}
 /** An interrupted hypothesis remains searchable, but is no longer shown as live recognition. */
 export async function retireInterims(sessionId?:string,epoch?:number){
  const database=await db();return new Promise<void>((resolve,reject)=>{const tx=database.transaction('captions','readwrite');const request=tx.objectStore('captions').openCursor();request.onsuccess=()=>{const cursor=request.result;if(!cursor)return;const row=cursor.value as CaptionRow;if((!sessionId||row.sessionId===sessionId)&&(epoch===undefined||row.epoch===epoch)&&row.phase==='interim')cursor.update({...row,phase:'interrupted',translationState:'cancelled'});cursor.continue();};tx.oncomplete=()=>resolve();tx.onerror=()=>reject(tx.error);});
