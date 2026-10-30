@@ -1,0 +1,11 @@
+{
+  "source": "https://www.modelscope.cn/studios/k2-fsa/web-assembly-asr-sherpa-onnx-zh-en",
+  "revision": "a5bf321c2c57b0221d12bf6108c73f09eca0f495",
+  "archiveUrl": "https://github.com/dexter-cuijian/caption-ripple/releases/download/v0.1.0-preview.1/CaptionRipple-extension-0.1.0-preview-clean.zip",
+  "archiveEntry": "extension/vendor/sherpa-onnx-wasm-main-asr.data",
+  "archiveSize": 179880086,
+  "archiveSha256": "75fff6c7cc59d17659b18ed1a68643517ba6adbbacca928d8fe35c7e7d4a2cb1",
+  "dataSize": 199059238,
+  "dataSha256": "90b04a9403e4bae9b23a0a3c00dbac8603e183361105a52cc03f053217490863",
+  "wasmSha256": "d0c15c3042fd61ca2a158a1eeb8b8c2099201f7580945efc8f729d2830cf746d"
+}

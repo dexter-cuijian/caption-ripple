@@ -12,6 +12,7 @@
     "test:extension": "vitest run",
     "build": "node scripts/build.mjs",
     "setup:model": "node scripts/download-model.mjs",
+    "setup:browser-model": "node scripts/setup-browser-model.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

@@ -1,11 +1,20 @@
 import {build as viteBuild} from 'vite';
 import {build as esbuild} from 'esbuild';
-import {copyFile,mkdir,cp} from 'node:fs/promises';
+import {copyFile,mkdir,cp,stat} from 'node:fs/promises';
+import {createReadStream} from 'node:fs';
+import {createHash} from 'node:crypto';
 import {fileURLToPath} from 'node:url';
+import browserModel from '../browser-model.lock.json' with {type:'json'};
 const root=fileURLToPath(new URL('../extension/',import.meta.url));
 const outdir=fileURLToPath(new URL('../dist/extension/',import.meta.url));
 await viteBuild({root,build:{outDir:outdir,emptyOutDir:true,rollupOptions:{input:{popup:`${root}popup.html`,sidepanel:`${root}sidepanel.html`,history:`${root}history.html`,offscreen:`${root}offscreen.html`}}}});
-for(const name of ['background','content','worklet']) await esbuild({entryPoints:[`${root}src/${name}.ts`],bundle:true,format:name==='background'?'esm':'iife',target:'chrome116',outfile:`${outdir}${name}.js`,sourcemap:true});
+for(const name of ['background','content','worklet','asr-worker']) await esbuild({entryPoints:[`${root}src/${name}.ts`],bundle:true,format:name==='background'?'esm':'iife',target:'chrome116',outfile:`${outdir}${name}.js`,sourcemap:true});
 await mkdir(outdir,{recursive:true});await copyFile(`${root}manifest.json`,`${outdir}manifest.json`);
 await cp(`${root}icons`,`${outdir}icons`,{recursive:true});
+await cp(`${root}vendor`,`${outdir}vendor`,{recursive:true});
+const model=fileURLToPath(new URL('../.models/browser-asr/sherpa-onnx-wasm-main-asr.data',import.meta.url));
+let size=0,hash=createHash('sha256');
+try{size=(await stat(model)).size;for await(const chunk of createReadStream(model))hash.update(chunk);}catch{throw new Error('Browser ASR model missing. Run npm run setup:browser-model before building.');}
+if(size!==browserModel.dataSize||hash.digest('hex')!==browserModel.dataSha256)throw new Error('Browser ASR model failed pinned size/SHA-256 verification.');
+await copyFile(model,`${outdir}vendor/sherpa-onnx-wasm-main-asr.data`);
 console.log(`Load unpacked extension: ${outdir}`);

@@ -1,6 +1,7 @@
 # Third-party components
 
 - sherpa-onnx / sherpa-onnx-node: https://github.com/k2-fsa/sherpa-onnx, Apache-2.0; npm version pinned in package-lock.json. Contains native runtime and ONNX Runtime under their own notices.
+- Browser ASR: the `k2-fsa/web-assembly-asr-sherpa-onnx-zh-en` ModelScope Studio at pinned revision `a5bf321c2c57b0221d12bf6108c73f09eca0f495` supplies the Sherpa-ONNX JS/WASM files under Apache-2.0. See `extension/vendor/NOTICE.md` and its included Apache-2.0 text. The bilingual streaming Zipformer model data comes from the Sherpa release asset documented in the package README; the original `pfluo/k2fsa-zipformer-chinese-english-mixed` checkpoint declares Apache-2.0. Its size and SHA-256 are pinned in `browser-model.lock.json`. The 199 MB model package is downloaded during build, excluded from Git, then included in the installable extension directory.
 - Streaming Paraformer bilingual zh-en int8: https://huggingface.co/csukuangfj/sherpa-onnx-streaming-paraformer-bilingual-zh-en, converted from ModelScope damo/speech_paraformer_asr_nat-zh-cn-16k-common-vocab8404-online. Repository revision and file integrity values are pinned in models.lock.json. Consult upstream model terms before redistributing weights. Model weights are not included in Git or extension ZIP.
 - ws: https://github.com/websockets/ws, MIT.
 - React: https://github.com/facebook/react, MIT.

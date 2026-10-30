@@ -2,7 +2,7 @@ import {beforeEach,expect,test,vi} from 'vitest';
 import {EventEmitter}from'node:events';
 import {Session}from'../../server/session.mjs';
 let runtimeMessages:any[]=[],translateFinish:((value:any)=>void)|undefined;
-let listener:any,failModule=false,contexts:any[],tracks:any[],sockets:any[],nodes:any[];
+let listener:any,failModule=false,contexts:any[],tracks:any[],sockets:any[],nodes:any[],workers:any[];
 class FakeSocket {
  static OPEN=1;readyState=0;bufferedAmount=0;sent:any[]=[];onopen:any;onmessage:any;onclose:any;onerror:any;
  constructor(_url:string){sockets.push(this);}send(data:any){this.sent.push(data);}close(){this.readyState=3;}
@@ -11,14 +11,24 @@ class FakeSocket {
 class FakeNode {port={onmessage:null as any};disconnect=vi.fn();connect=vi.fn();constructor(){nodes.push(this);}}
 class FakeContext {currentTime=0;state='running';destination={};audioWorklet={addModule:async()=>{if(failModule)throw new Error('worklet failed');}};close=vi.fn(async()=>{this.state='closed';});resume=vi.fn(async()=>{});onstatechange:any;constructor(){contexts.push(this);}createMediaStreamSource(){return new FakeNode();}createGain(){return Object.assign(new FakeNode(),{gain:{value:1}});}}
 async function command(kind:string,extra:any={}){return new Promise<any>(resolve=>listener({target:'offscreen',kind,...extra},{},resolve));}
-async function start(video?:any,extra:any={}){return command('start',{streamId:'capture',sessionId:'session',token:'secret',config:{},video,...extra});}
+async function start(video?:any,extra:any={}){const{config:overrides,...rest}=extra;return command('start',{streamId:'capture',sessionId:'session',token:'secret',config:{recognitionEngine:'companion',...overrides},video,...rest});}
 function packet(){[...nodes].reverse().find(n=>n.port.onmessage)?.port.onmessage({data:{pcm:new Int16Array(1600).buffer,rms:.1,contextTime:1}});}
 beforeEach(async()=>{
- vi.resetModules();vi.stubGlobal('Translator',undefined);vi.stubGlobal('fetch',async()=>{throw new Error('local offline');});runtimeMessages=[];translateFinish=undefined;failModule=false;contexts=[];tracks=[];sockets=[];nodes=[];
+ vi.resetModules();vi.stubGlobal('Translator',undefined);vi.stubGlobal('fetch',async()=>{throw new Error('local offline');});runtimeMessages=[];translateFinish=undefined;failModule=false;contexts=[];tracks=[];sockets=[];nodes=[];workers=[];
  vi.stubGlobal('chrome',{runtime:{onMessage:{addListener:(fn:any)=>listener=fn},sendMessage:async(message:any)=>{runtimeMessages.push(message);if(message.kind==='panel-translate')return new Promise(resolve=>{translateFinish=resolve;});return{};},getURL:(s:string)=>s}});
  vi.stubGlobal('navigator',{mediaDevices:{getUserMedia:async()=>{const track={stop:vi.fn(),onended:null};tracks.push(track);return{getTracks:()=>[track],getAudioTracks:()=>[track]};}}});
  vi.stubGlobal('AudioContext',FakeContext);vi.stubGlobal('AudioWorkletNode',FakeNode);vi.stubGlobal('WebSocket',FakeSocket);
+ vi.stubGlobal('Worker',class {onmessage:any;onerror:any;messages:any[]=[];constructor(public url:string){workers.push(this);}postMessage(message:any){this.messages.push(message);}terminate(){} });
  await import('../src/offscreen');
+});
+test('browser mode starts without a socket and routes worker source through existing subtitle pipeline',async()=>{
+ await start({currentTime:1,observedAt:Date.now(),playbackRate:1,paused:false},{config:{recognitionEngine:'browser',targetLanguage:'zh'}});
+ expect(sockets).toHaveLength(0);expect(workers).toHaveLength(1);
+ workers[0].onmessage({data:{kind:'ready'}});packet();
+ expect(workers[0].messages.some((message:any)=>message.kind==='pcm')).toBe(true);
+ workers[0].onmessage({data:{kind:'subtitle',event:{type:'subtitle',sessionId:'session',epoch:0,segmentId:'0',revision:1,phase:'interim',sourceText:'HELLO',sourceLanguage:'en',engine:'sherpa-onnx/wasm-zipformer-zh-en'}}});
+ expect(runtimeMessages.some(message=>message.kind==='subtitle'&&message.event.sourceText==='HELLO')).toBe(true);
+ await command('stop');
 });
 test('same offscreen document Stop then Start creates fresh packet counters and context anchor',async()=>{
  vi.spyOn(Date,'now').mockReturnValue(100000);
