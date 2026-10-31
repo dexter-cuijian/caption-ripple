@@ -58,7 +58,15 @@ export class SenseVoiceSession{
   }
   return events;
  }
- flush(clock:AsrClock){this.vad.flush();return this.drain(clock);}
+ flush(clock:AsrClock){
+  this.vad.flush();const events=this.drain(clock);
+  if(!events.length&&this.windowSamples){
+   const window=new Float32Array(this.windowSamples);let at=0,power=0;
+   for(const block of this.window){window.set(block,at);at+=block.length;for(const value of block)power+=value*value;}
+   if(Math.sqrt(power/window.length)>.003){const text=this.recognizer.decode(window).trim();if(text)events.push(this.event('final',text,this.sample-window.length,this.sample,clock));}
+  }
+  this.window=[];this.windowSamples=0;return events;
+ }
  reset(){this.vad.reset();this.sample=0;this.origin=null;this.segment++;this.revision=0;this.last='';this.lastFinalSample=0;this.lastInterimSample=0;this.vadOriginSample=0;this.pending=new Float32Array(0);this.window=[];this.windowSamples=0;}
  close(){if(this.closed)return;this.closed=true;this.vad.free();this.recognizer.free();}
 }

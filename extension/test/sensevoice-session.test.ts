@@ -70,3 +70,11 @@ test('forced finals consume consecutive audio windows without a gap or replay',(
  }
  session.close();
 });
+test('flush finalizes a speech tail that VAD has not ended',()=>{
+ const session=new SenseVoiceSession(new FakeVad(),{decode:()=> 'last words',free(){}});
+ for(let n=1;n<=60;n++)session.accept(packet(),{capturedAt:n*100,mediaTime:n/10});
+ expect(session.flush({capturedAt:6000,mediaTime:6})).toMatchObject([
+  {phase:'final',segmentId:'0',start:0,end:6,sourceText:'last words'}
+ ]);
+ session.close();
+});

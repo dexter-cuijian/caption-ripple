@@ -11,7 +11,9 @@ import {BrowserMetrics} from './browser-metrics';
 import {defaults, initialState,send, type Config,type VideoInfo} from './shared';
 let context:AudioContext|undefined,stream:MediaStream|undefined,source:MediaStreamAudioSourceNode|undefined,worklet:AudioWorkletNode|undefined,silent:GainNode|undefined,playback:GainNode|undefined;
 let socket:WebSocket|undefined,asrWorker:Worker|undefined,retry:ReturnType<typeof setTimeout>|undefined,active=false,accepted=false,attempt=0;
+let stopping:Promise<void>|undefined;
 let sessionId='',epoch=0,seq=0,sampleStart=0,anchor:number|null=null,browserOutstanding=0;
+const pendingSourceWrites=new Set<Promise<void>>();
 let latestSource:any;let glossary:GlossaryState=emptyGlossary,captureScopeUrl='';
 let pageCaptionUntil=0,pageCaptionMode=false;
 const scopeUrl=()=>video?.url||captureScopeUrl;
@@ -66,13 +68,14 @@ function receiveSubtitle(data:any){
  if(data.phase==='final')liveTranslations.finalize(data);
  else if(config.translationEngine!=='off')liveTranslations.observe(data,config.targetLanguage,page.text,page.index);
  const targetLanguage=config.targetLanguage;
- void send('background','subtitle',{event:{...data,targetLanguage,translationState:config.translationEngine==='off'?'disabled':undefined}}).then(response=>{
+ const write=send('background','subtitle',{event:{...data,targetLanguage,translationState:config.translationEngine==='off'?'disabled':undefined}}).then(response=>{
   if(response?.error)throw new Error(response.error);
   if(data.phase==='final'&&config.translationEngine!=='off'){
    translations.enqueue(data,targetLanguage);if(config.proofreading&&config.recognitionEngine==='companion'&&data.sourceLanguage!==targetLanguage)proofreader.observe(data,targetLanguage);
    publish({languageLock:translations.language.locked??undefined});
   }
  }).catch(error=>publish({translationError:`字幕保存失败：${String(error)}`}));
+ pendingSourceWrites.add(write);void write.finally(()=>pendingSourceWrites.delete(write));
 }
 
 function reset(reason:string){
@@ -125,6 +128,22 @@ function connect(){
  };
 }
 async function stop(){
+ if(stopping)return stopping;
+ stopping=performStop();try{await stopping;}finally{stopping=undefined;}
+}
+async function performStop(){
+ if(asrWorker&&active&&accepted&&!pageCaptionMode&&config.recognitionEngine==='browser-sensevoice'){
+  accepted=false;publish({message:'正在保存最后一段字幕'});
+  const worker=asrWorker,currentSession=sessionId,currentEpoch=epoch;
+  await new Promise<void>(resolve=>{
+   const finish=()=>{clearTimeout(timeout);worker.removeEventListener('message',onMessage);worker.removeEventListener('error',finish);resolve();};
+   const onMessage=(event:MessageEvent)=>{const data=event.data;if(data.kind==='error'||data.kind==='flushed'&&data.sessionId===currentSession&&data.epoch===currentEpoch)finish();};
+   const timeout=setTimeout(finish,8000);
+   worker.addEventListener('message',onMessage);worker.addEventListener('error',finish);
+   try{worker.postMessage({kind:'flush',sessionId:currentSession,epoch:currentEpoch,capturedAt:Date.now(),mediaTime:video?.currentTime??null});}catch{finish();}
+  });
+  await new Promise<void>(resolve=>{const timeout=setTimeout(resolve,2000);void Promise.allSettled([...pendingSourceWrites]).then(()=>{clearTimeout(timeout);resolve();});});
+ }
  browserMetrics.clearPending();
  pageCaptionMode=false;pageCaptionUntil=0;browserOutstanding=0;
  latestSource=undefined;active=false;accepted=false;clearTimeout(retry);translations.reset('',-1);liveTranslations.reset('',-1);proofreader.reset('',-1);
