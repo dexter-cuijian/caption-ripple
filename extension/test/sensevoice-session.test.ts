@@ -59,3 +59,14 @@ test('does not decode or publish a forced caption for silence',()=>{
  expect(events.at(-1)).toMatchObject({phase:'interim',segmentId:'1',start:10,end:15});
  session.close();
 });
+test('forced finals consume consecutive audio windows without a gap or replay',()=>{
+ const finals:Float32Array[]=[];
+ const session=new SenseVoiceSession(new FakeVad(),{decode:samples=>{if(samples.length===160000)finals.push(samples.slice());return 'speech';},free(){}});
+ for(let n=1;n<=200;n++)session.accept(packet(1000+n),{capturedAt:n*100,mediaTime:null});
+ expect(finals).toHaveLength(2);
+ for(let i=0;i<100;i++){
+  expect(finals[0][i*1600]).toBeCloseTo((1001+i)/32768,6);
+  expect(finals[1][i*1600]).toBeCloseTo((1101+i)/32768,6);
+ }
+ session.close();
+});
