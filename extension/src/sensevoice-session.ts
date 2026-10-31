@@ -3,16 +3,17 @@ import type {AsrClock,AsrEvent} from './browser-asr';
 export interface VoiceSegment{start:number;samples:Float32Array}
 export interface VoiceDetector{acceptWaveform(samples:Float32Array):void;isEmpty():boolean;front():VoiceSegment;pop():void;reset():void;flush():void;free():void}
 export interface OfflineDecoder{decode(samples:Float32Array):string;free():void}
+const detectedLanguage=(text:string)=>/[\uac00-\ud7af\u1100-\u11ff]/u.test(text)?'ko':/[\u3040-\u30ff]/u.test(text)?'ja':/[\u3400-\u9fff]/u.test(text)?'zh':'en';
 
 /** Keeps a bounded interim window while the VAD owns final utterance boundaries. */
 export class SenseVoiceSession{
  private sample=0;private origin:number|null=null;private segment=0;private revision=0;private last='';private lastFinalSample=0;private lastInterimSample=0;private vadOriginSample=0;
  private pending=new Float32Array(0);private window:Float32Array[]=[];private windowSamples=0;private closed=false;
- constructor(private vad:VoiceDetector,private recognizer:OfflineDecoder){}
+ constructor(private vad:VoiceDetector,private recognizer:OfflineDecoder,private sourceLanguage='auto'){}
  private event(phase:'interim'|'final',text:string,startSample:number,endSample:number,clock:AsrClock):AsrEvent{
   this.revision++;this.last=text;
   const origin=this.origin??clock.capturedAt;
-  return{phase,segmentId:String(this.segment),revision:this.revision,sourceText:text,sourceLanguage:'auto',start:Math.max(0,startSample/16000),end:Math.max(0,endSample/16000),mediaTime:clock.mediaTime,createdAt:Date.now(),speechStartAt:origin+startSample/16,audioEndAt:origin+endSample/16,engine:'sherpa-onnx/wasm-sensevoice-small-int8'};
+  return{phase,segmentId:String(this.segment),revision:this.revision,sourceText:text,sourceLanguage:this.sourceLanguage==='auto'?detectedLanguage(text):this.sourceLanguage,start:Math.max(0,startSample/16000),end:Math.max(0,endSample/16000),mediaTime:clock.mediaTime,createdAt:Date.now(),speechStartAt:origin+startSample/16,audioEndAt:origin+endSample/16,engine:'sherpa-onnx/wasm-sensevoice-small-int8'};
  }
  private drain(clock:AsrClock){
   const events:AsrEvent[]=[];
@@ -67,6 +68,6 @@ export class SenseVoiceSession{
   }
   this.window=[];this.windowSamples=0;return events;
  }
- reset(){this.vad.reset();this.sample=0;this.origin=null;this.segment++;this.revision=0;this.last='';this.lastFinalSample=0;this.lastInterimSample=0;this.vadOriginSample=0;this.pending=new Float32Array(0);this.window=[];this.windowSamples=0;}
+ reset(sourceLanguage='auto'){this.vad.reset();this.sourceLanguage=sourceLanguage;this.sample=0;this.origin=null;this.segment++;this.revision=0;this.last='';this.lastFinalSample=0;this.lastInterimSample=0;this.vadOriginSample=0;this.pending=new Float32Array(0);this.window=[];this.windowSamples=0;}
  close(){if(this.closed)return;this.closed=true;this.vad.free();this.recognizer.free();}
 }

@@ -1,7 +1,7 @@
 interface Stream{acceptWaveform(rate:number,samples:Float32Array):void;free():void}
 interface Recognizer{createStream():Stream;isReady(stream:Stream):boolean;decode(stream:Stream):void;getResult(stream:Stream):{text:string};isEndpoint(stream:Stream):boolean;reset(stream:Stream):void;free?():void}
 export interface AsrClock{capturedAt:number;mediaTime:number|null}
-export interface AsrEvent{phase:'interim'|'final';segmentId:string;revision:number;sourceText:string;sourceLanguage:'auto';start:number;end:number;mediaTime:number|null;createdAt:number;speechStartAt:number|null;audioEndAt:number;engine:string}
+export interface AsrEvent{phase:'interim'|'final';segmentId:string;revision:number;sourceText:string;sourceLanguage:string;start:number;end:number;mediaTime:number|null;createdAt:number;speechStartAt:number|null;audioEndAt:number;engine:string}
 
 /** One recognizer stream per capture epoch; only the analysis samples are amplified. */
 export class BrowserAsrSession {

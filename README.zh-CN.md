@@ -20,7 +20,7 @@ npm run build
 
 首次下载约 180 MB 的扩展压缩包，从中提取约 199 MB 的模型；版本和 SHA-256 校验见 `browser-model.lock.json`。模型打入 `dist/extension`，安装后语音识别在浏览器内运行。模型文件不提交到 Git；下载地址只提供静态安装文件，不接收用户音频。
 
-**SenseVoice 实验候选：**运行 `npm run setup:sensevoice-model && npm run build:sensevoice`，再到侧栏设置选择“SenseVoice 候选”。此构建同时包含默认 Zipformer 和约 239 MB 的 SenseVoiceSmall 模型。离线参考集表现较好，但真实 Chrome 采集延迟、翻译质量、多站点兼容和长时间稳定性尚未通过发布门槛。模型使用单独的 FunASR 许可，详见 `sensevoice-model.lock.json` 和 `THIRD_PARTY.md`。
+**SenseVoice 实验候选：**运行 `npm run setup:sensevoice-model && npm run build:sensevoice`，再到侧栏设置选择“SenseVoice 候选”。此构建同时包含默认 Zipformer 和约 239 MB 的 SenseVoiceSmall 模型。日语或韩语翻译请明确选择原文语言并准备 Chrome 对应翻译模型；粤语识别当前输出简体中文，目标为中文时直接显示识别结果。离线参考集表现较好，但真实 Chrome 采集延迟、翻译质量、多站点兼容和长时间稳定性尚未通过发布门槛。模型使用单独的 FunASR 许可，详见 `sensevoice-model.lock.json` 和 `THIRD_PARTY.md`。
 
 打开 `chrome://extensions`，启用开发者模式，选择“加载已解压的扩展程序”，选取本项目的 `dist/extension`。在有声音的普通网页上点击扩展图标，再从侧栏点击开始。浏览器模式不需要配对码。首次启动需要等待模型载入内存。
 

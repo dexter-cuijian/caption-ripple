@@ -27,6 +27,15 @@ test('same-language interim does not emit a fake live translation',async()=>{
  expect(calls).toBe(0);expect(emitted).toHaveLength(0);
  vi.useRealTimers();
 });
+test('Cantonese source already written in simplified Chinese does not request a second Chinese translation',async()=>{
+ const calls:string[]=[],events:any[]=[];
+ const translator=new FinalTranslator({translate:async(_text,source)=>{calls.push(source);return 'wrong';}},event=>events.push(event),()=>{});
+ translator.reset('s',2);
+ translator.enqueue({...row(),sourceLanguage:'yue',sourceText:'大家好'} as any,'zh');
+ await new Promise(resolve=>setTimeout(resolve,0));
+ expect(calls).toEqual([]);
+ expect(events).toMatchObject([{text:'大家好',engine:'same-language'}]);
+});
 test('exports escape timestamps correctly and include source and translation',()=>{
  const rows=[{...row(),translatedText:'No growth of 20%',start:1.25,end:3.5}];
  expect(exportCaptions(rows as any,'srt')).toContain('00:00:01,250 --> 00:00:03,500');

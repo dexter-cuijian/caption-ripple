@@ -14,7 +14,7 @@ export class FinalTranslator{
  enqueue(event:any,targetLanguage:string){
  if(event.phase!=='final'||event.sessionId!==this.session||event.epoch!==this.epoch)return;
  const key=event.segmentId;if(event.revision<=(this.latest.get(key)??-1))return;this.latest.set(key,event.revision);
- const sourceLanguage=event.sourceLanguage==='auto'?this.language.observe(event.sourceText):event.sourceLanguage;
+ const sourceLanguage=event.sourceLanguage==='yue'?'zh':event.sourceLanguage==='auto'?this.language.observe(event.sourceText):event.sourceLanguage;
  const task={...event,sourceLanguage,targetLanguage};if(this.queue.length>=20){this.failure({...task,sourceRevision:task.revision,error:'翻译队列已满；原文已保存在历史中'});return;}
  this.queue.push(task);void this.drain();
  }
@@ -41,7 +41,7 @@ export class LiveTranslator{
  finalize(event:any){if(this.latest?.segmentId===event.segmentId){this.latest=undefined;clearTimeout(this.timer);this.timer=undefined;}}
  private schedule(){if(this.timer||this.busy||!this.latest)return;this.timer=setTimeout(()=>{this.timer=undefined;void this.run();},Math.max(300,this.lastAttempt+this.intervalMs-Date.now()));}
  private async run(){const task=this.latest;if(!task||this.busy||task.pageText===this.lastText)return;this.busy=true;this.lastAttempt=Date.now();this.lastText=task.pageText;
-  const source=task.sourceLanguage==='auto'?(/[\u3400-\u9fff]/.test(task.pageText)?'zh':'en'):task.sourceLanguage;
+  const source=task.sourceLanguage==='yue'?'zh':task.sourceLanguage==='auto'?(/[\u3400-\u9fff]/.test(task.pageText)?'zh':'en'):task.sourceLanguage;
   try{if(source===task.targetLanguage)return;
    const text=await withDeadline(signal=>this.provider.translate(task.pageText,source,task.targetLanguage,signal),5000,this.controller.signal);
    const current=this.latest;if(text?.trim()&&current&&current.sessionId===task.sessionId&&current.epoch===task.epoch&&current.segmentId===task.segmentId&&current.pageIndex===task.pageIndex&&current.sourceText.startsWith(task.sourceText))this.emit({...task,sourceRevision:task.revision,text,sourceLanguage:source});

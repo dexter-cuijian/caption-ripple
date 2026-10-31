@@ -19,7 +19,7 @@ async function load(){
 }
 worker.onmessage=({data}:MessageEvent)=>{
  try{
-  if(data.kind==='reset'){sessionId=data.sessionId;epoch=data.epoch;session?.reset();status('reset-done',{sessionId,epoch});return;}
+  if(data.kind==='reset'){sessionId=data.sessionId;epoch=data.epoch;session?.reset(data.sourceLanguage??'auto');status('reset-done',{sessionId,epoch});return;}
   if(data.kind==='flush'&&session&&data.sessionId===sessionId&&data.epoch===epoch){
    for(const event of session.flush({capturedAt:data.capturedAt,mediaTime:data.mediaTime}))status('subtitle',{event:{...event,type:'subtitle',sessionId,epoch}});
    status('flushed',{sessionId,epoch});return;

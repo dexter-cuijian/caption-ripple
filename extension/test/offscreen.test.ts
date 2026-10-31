@@ -55,7 +55,7 @@ test('browser recognition resumes after webpage captions disappear',async()=>{
  workers[0].onmessage({data:{kind:'ready'}});workers[0].onmessage({data:{kind:'reset-done',sessionId:'session',epoch:0}});
  await command('page-caption',{caption:{text:'Visible caption.',language:'en',mediaTime:1,segmentId:'page-1'}});
  vi.mocked(Date.now).mockReturnValue(107000);packet();
- expect(workers[0].messages).toContainEqual({kind:'reset',sessionId:'session',epoch:1});
+ expect(workers[0].messages).toContainEqual({kind:'reset',sessionId:'session',epoch:1,sourceLanguage:'auto'});
  workers[0].onmessage({data:{kind:'reset-done',sessionId:'session',epoch:1}});packet();
  expect(workers[0].messages.some((message:any)=>message.kind==='pcm'&&message.epoch===1)).toBe(true);
  await command('stop');vi.restoreAllMocks();

@@ -84,7 +84,7 @@ function reset(reason:string){
  latestSource=undefined;const previousEpoch=epoch;epoch++;revisions.reset(sessionId,epoch);translations.reset(sessionId,epoch);proofreader.reset(sessionId,epoch);seq=0;sampleStart=0;anchor=null;browserOutstanding=0;accepted=false;
  publish(retainCaptionOnReset(reason)?{message:reason}:{latestText:'',latestCaption:undefined,latestTranslation:'',translationError:undefined,latestTranslationRevision:0,latestDisplayText:'',message:reason});
  if(socket?.readyState===WebSocket.OPEN)socket.send(JSON.stringify({type:'reset',sessionId,epoch,mediaTime:video?.currentTime??null,sourceLanguage:config.sourceLanguage,hotwords:hotwordsFor(glossary.entries,config.sourceLanguage,scopeUrl()),reason}));
- asrWorker?.postMessage({kind:'reset',sessionId,epoch});
+ asrWorker?.postMessage({kind:'reset',sessionId,epoch,sourceLanguage:config.sourceLanguage});
  void send('background','epoch',{sessionId,epoch,previousEpoch,reason}).catch(()=>{});
 }
 function connectBrowser(){
@@ -93,7 +93,7 @@ function connectBrowser(){
  const worker=new Worker(chrome.runtime.getURL(sense?'sense-worker.js':'asr-worker.js'),sense?{type:'module'}:undefined);asrWorker=worker;
  worker.onmessage=({data})=>{
   if(asrWorker!==worker||!active)return;
-  if(data.kind==='ready')worker.postMessage({kind:'reset',sessionId,epoch});
+  if(data.kind==='ready')worker.postMessage({kind:'reset',sessionId,epoch,sourceLanguage:config.sourceLanguage});
   if(data.kind==='reset-done'&&data.sessionId===sessionId&&data.epoch===epoch){accepted=true;publish({phase:'running',message:'正在使用扩展内语音识别'});}
   if(data.kind==='processed'&&data.sessionId===sessionId&&data.epoch===epoch)browserOutstanding=Math.max(0,browserOutstanding-1);
   if(data.kind==='loading')publish({message:data.message});

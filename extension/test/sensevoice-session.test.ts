@@ -78,3 +78,22 @@ test('flush finalizes a speech tail that VAD has not ended',()=>{
  ]);
  session.close();
 });
+test('labels auto Japanese and Korean speech and honors an explicit Cantonese source',()=>{
+ const vad=new FakeVad();let text='日本語です';
+ const session=new SenseVoiceSession(vad,{decode:()=>text,free(){}});
+ for(let n=1;n<=100;n++){
+  const events=session.accept(packet(),{capturedAt:n*100,mediaTime:null});
+  if(n===100)expect(events.at(-1)?.sourceLanguage).toBe('ja');
+ }
+ session.reset();text='한국어입니다';
+ for(let n=1;n<=100;n++){
+  const events=session.accept(packet(),{capturedAt:n*100,mediaTime:null});
+  if(n===100)expect(events.at(-1)?.sourceLanguage).toBe('ko');
+ }
+ session.reset('yue');text='大家好';
+ for(let n=1;n<=100;n++){
+  const events=session.accept(packet(),{capturedAt:n*100,mediaTime:null});
+  if(n===100)expect(events.at(-1)?.sourceLanguage).toBe('yue');
+ }
+ session.close();
+});
