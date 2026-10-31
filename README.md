@@ -1,12 +1,16 @@
-# CaptionRipple · 实时字幕与翻译
+# CaptionRipple
 
-开发预览：Chrome Manifest V3 扩展，默认在浏览器内使用 Sherpa-ONNX WebAssembly 识别语音，无需另启服务。音频来自标签页，不使用麦克风；捕获后通过 Offscreen AudioContext 回送声音。主要运行环境：Apple Silicon Mac，Chrome 116+，Node 22+。
+Real-time captions and translation for Chrome, with on-device speech recognition.
 
-## 安装和运行
+[English](README.md) · [简体中文](README.zh-CN.md)
 
-直接安装：从 [GitHub Releases](https://github.com/dexter-cuijian/caption-ripple/releases) 下载 `CaptionRipple-extension-0.1.0-preview-clean.zip`，解压后在 `chrome://extensions` 启用开发者模式，点“加载已解压的扩展程序”，选择解压得到的 `extension` 文件夹。无需安装 Node 或启动本地服务。首次启动需要等待内置模型载入内存。这个预览 ZIP 是旧构建，不包含仓库最新的显示与播放同步修复；稳定版安装包仍在验收中。
+CaptionRipple is a Chrome Manifest V3 extension in development preview. By default, it recognizes tab audio in the browser with Sherpa-ONNX WebAssembly, without a separate server or microphone access. Captured audio is routed back to the speakers through an offscreen AudioContext. The primary environment is an Apple Silicon Mac with Chrome 116+; source builds require Node.js 22+.
 
-从源码构建：
+## Install and use
+
+**Preview package:** Download `CaptionRipple-extension-0.1.0-preview-clean.zip` from [GitHub Releases](https://github.com/dexter-cuijian/caption-ripple/releases), extract it, enable Developer mode at `chrome://extensions`, select **Load unpacked**, and choose the extracted `extension` folder. Node.js and a local server are not needed. The bundled model can take time to load on first use. **This preview package predates the latest display and playback fixes in the repository. It is not a stable release.**
+
+**Build the latest source:**
 
 ```sh
 npm ci
@@ -14,36 +18,36 @@ npm run setup:browser-model
 npm run build
 ```
 
-首次下载约 180 MB 的扩展压缩包，从中提取约 199 MB 的模型；版本和 SHA-256 校验见 `browser-model.lock.json`。模型打入 `dist/extension`，安装后语音识别在浏览器内运行。模型文件不提交到 Git；下载地址只提供静态安装文件，不接收用户音频。
+Model setup downloads an archive of about 180 MB and extracts a model of about 199 MB. Its version and SHA-256 hash are recorded in [`browser-model.lock.json`](browser-model.lock.json). The model is bundled into `dist/extension` and is not committed to Git. The download serves static files and does not receive user audio.
 
-打开 `chrome://extensions`，启用开发者模式，选择“加载已解压的扩展程序”，选取本项目的 `dist/extension`。在有声音的普通网页上点击扩展图标，再从侧栏点击开始。浏览器模式不需要配对码。首次启动需要等待模型载入内存。
+**Experimental SenseVoice candidate:** Run `npm run setup:sensevoice-model && npm run build:sensevoice`, then choose **SenseVoice candidate** in the side-panel settings. This build bundles both the default Zipformer and the additional 239 MB SenseVoiceSmall model. The candidate has promising offline reference results, but real Chrome capture latency, translation quality, multiple sites, and long-running stability have not passed release gates. The model uses a separate FunASR license; see [`sensevoice-model.lock.json`](sensevoice-model.lock.json) and [`THIRD_PARTY.md`](THIRD_PARTY.md).
 
-Node 伴侣只作为性能与质量对照：`npm run setup:model && npm start`，然后在侧栏设置里切换到“Node 本地伴侣”并输入 `.runtime/token`。服务仅监听 `127.0.0.1:9876`，配对码只保存在 `chrome.storage.local`。
+Load `dist/extension` at `chrome://extensions`. On a regular webpage with audio, click the extension icon and start capture from the side panel. Capture requires a user action. Browser mode needs no pairing code. The UI reports model loading, capture failures, and backend disconnections.
 
-必须通过用户操作启动 `tabCapture`。首次启动需等待模型完成加载。未就绪、捕获失败或后端断开时界面会给出错误，不能据此认为字幕已正常工作。
+The optional Node companion is for performance and quality comparison: run `npm run setup:model && npm start`, select **Node local companion** in the side panel, and enter the pairing code from `.runtime/token`. The service listens only on `127.0.0.1:9876`; the code is stored in `chrome.storage.local`.
 
-## 技术与已知边界
+## Features and limits
 
-- Offscreen 中一条音频支路连接 `AudioContext.destination`，另一条经过 AudioWorklet 重采样，输出16kHz单声道PCM。重连时保持音频回放，不重复播放旧音频。
-- 默认浏览器解码器使用双语流式 Zipformer；可选 Node 伴侣使用 `streaming-paraformer-bilingual-zh-en`。两者都支持中英文，目前浏览器模式的长句分段、标点和专有名词准确率仍需优化。它们不提供词级时间戳；日志中的片段时间使用采集时钟估算。
-- 在播放器容器全屏时重挂字幕；如果网站直接让原生 `<video>` 进入只显示视频画面的系统层全屏，网页DOM有平台限制，需要插件提供的带字幕全屏入口。
-- 跨域iframe需要用户授权对应站点。受保护页面、浏览器内部页面或受限媒体会明确提示，不能绕过DRM。
-- 声音回送、全屏字幕、长时队列和内存都必须通过真实浏览器测试；自动化测试不替代这些验收。
+- Live English and Chinese source captions, translation, a video overlay, and side-panel history. The history page can search by page URL, group recordings by page and session, show time ranges, and delete individual entries, sessions, pages, or all history.
+- Import local `.srt` or `.vtt` subtitles in the side panel. Imported captions follow the current HTML5 video's playback time and appear in page history. Files are limited to 4 MB and 20,000 entries; import again after changing page or video.
+- An offscreen audio path plays tab audio back, while an AudioWorklet resamples another path to 16 kHz mono PCM for recognition. Silent playback mutes the speaker path while preserving recognition.
+- Browser recognition uses a bilingual streaming Zipformer; the optional Node companion uses `streaming-paraformer-bilingual-zh-en`. Recognition errors, punctuation, long-sentence segmentation, and translation quality still need work. Neither model supplies word-level timestamps; segment times are estimated from the capture clock.
+- Captions can be reattached in player-container fullscreen. Native video-only fullscreen may hide webpage DOM overlays; use the extension's captioned fullscreen entry in that case.
+- Cross-origin iframes require permission for their sites. Protected pages, browser-internal pages, and restricted media are unsupported; the extension does not bypass DRM.
 
-## 开发与验收
+## Development and release status
 
 ```sh
 npm test
 npm run test:extension
+npm run typecheck
 npm run build
 ```
 
-当前分阶段实施：阶段一原文字幕；阶段二final整句翻译与双语；阶段三新闻站点与连续 30 分钟稳定性；阶段四离线翻译、流式译文、历史导出与体验增强。每阶段先在真实Chrome验收再推进。验收证据和限制记录在 `docs/reports/`，不能将尚未运行的检查视为通过。
+A continuous 30-minute capture check has been completed, but it does not establish recognition accuracy or multi-site compatibility. Before a stable release, the project still needs better real-video recognition and translation, Chrome checks across multiple sites and playback states, resource measurements, and a clean package, license, privacy, and download review. The available GitHub release is a preview; no stable release has been published.
 
-侧栏可选择本地 `.srt` 或 `.vtt` 文件，字幕跟随当前 HTML5 视频的播放时间显示，已显示的字幕进入本页历史。导入文件最多 4 MB、20,000 条；切换页面或视频后需重新导入。浏览器内语音识别的质量、长时间稳定性和不同网站兼容性仍在真实 Chrome 中验证。
+## Privacy and licenses
 
-## 数据与许可
+In browser mode, audio stays on the device and recordings are not saved. Runtime diagnostics do not record the pairing code. Any future external-service option must explain what data it sends and why.
 
-默认音频不离开本机，不保存录音；运行诊断不记录配对码。开启外部服务时会明确说明上传数据与目的。
-
-识别引擎、模型来源与文件哈希见 `browser-model.lock.json`、`models.lock.json` 和 `THIRD_PARTY.md`。项目源码采用 MIT 许可，第三方 WASM 代码和模型使用各自许可。此项目未发布至扩展商店。
+Project source code is MIT licensed. The WASM engines and models have their own licenses; see [`THIRD_PARTY.md`](THIRD_PARTY.md), [`browser-model.lock.json`](browser-model.lock.json), [`sensevoice-model.lock.json`](sensevoice-model.lock.json), and [`models.lock.json`](models.lock.json). CaptionRipple is not published in the Chrome Web Store.
