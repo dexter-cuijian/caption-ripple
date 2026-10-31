@@ -49,12 +49,16 @@ async function broadcast(kind:string,extra:Record<string,unknown>={}){
  if(!state.tabId)return;await chrome.tabs.sendMessage(state.tabId,{target:'content',kind,...extra}).catch(()=>{});
 }
 async function injectCurrentPage(tabId:number){
- try{
-  await chrome.scripting.executeScript({target:{tabId,allFrames:true},files:['content.js']}).catch(()=>chrome.scripting.executeScript({target:{tabId},files:['content.js']}));
-  if(tabId===state.tabId){state.pageAccessWarning=undefined;await broadcast('inspect');}
- }catch{
-  if(tabId===state.tabId)state.pageAccessWarning='已切换网页，但无法注入视频字幕。请在当前页面点击工具栏中的 CaptionRipple 图标授权。';
+ for(let attempt=0;attempt<3&&tabId===state.tabId;attempt++){
+  try{
+   await chrome.scripting.executeScript({target:{tabId,allFrames:true},files:['content.js']}).catch(()=>chrome.scripting.executeScript({target:{tabId},files:['content.js']}));
+   if(tabId===state.tabId){state.pageAccessWarning=undefined;await broadcast('inspect');}
+   return;
+  }catch{
+   if(attempt<2)await new Promise(resolve=>setTimeout(resolve,300*(attempt+1)));
+  }
  }
+ if(tabId===state.tabId)state.pageAccessWarning='已切换网页，但无法注入视频字幕。请在当前页面点击工具栏中的 CaptionRipple 图标授权。';
 }
 async function sendImported(cues:ImportedCue[],video:NonNullable<State['video']>){
  if(!state.tabId)return;
