@@ -118,6 +118,7 @@ chrome.runtime.onMessage.addListener((message,sender,reply)=>{
  if(message.target!=='background')return;
  (async()=>{
   await ensureImportRestored();
+  if(message.kind==='refresh-page'&&state.phase!=='idle'&&message.tabId===state.tabId){await injectCurrentPage(state.tabId!);return state;}
   if(message.kind==='start')await start(message.tabId);
   if(message.kind==='import-subtitles')return await importSubtitles(message);
   if(message.kind==='stop'){retire(state.sessionId,state.epoch);interimSavedAt.clear();cancelPanelTranslations('停止后已取消翻译');await retireHistory(state.sessionId,state.epoch,'停止后已取消翻译');await retireInterims();await clearImport();await send('offscreen','stop');await broadcast('clear');videos.clear();state={...initialState};}
