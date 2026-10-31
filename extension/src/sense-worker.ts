@@ -2,7 +2,7 @@ import {SenseVoiceSession} from './sensevoice-session';
 
 const worker=self as any;
 let session:SenseVoiceSession|undefined,sessionId='',epoch=0;
-const asset=(name:string)=>chrome.runtime.getURL(`vendor/sensevoice/${name}`);
+const asset=(name:string)=>new URL(`vendor/sensevoice/${name}`,import.meta.url).href;
 const status=(kind:string,details:Record<string,unknown>={})=>worker.postMessage({kind,...details});
 
 async function load(){
