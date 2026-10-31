@@ -6,6 +6,20 @@ class FakeVad implements VoiceDetector{
  isEmpty(){return this.queue.length===0;}front(){return this.queue[0];}pop(){this.queue.shift();}reset(){this.resets++;this.queue=[];}flush(){}free(){}
 }
 const packet=(value=1000)=>new Int16Array(1600).fill(value);
+test('quiet speech reaches interim and final decoding while digital silence stays suppressed',()=>{
+ let calls=0;const session=new SenseVoiceSession(new FakeVad(),{decode:()=>{calls++;return 'quiet words';},free(){}});
+ let events=[] as ReturnType<typeof session.accept>;
+ for(let n=1;n<=100;n++)events.push(...session.accept(packet(32),{capturedAt:n*100,mediaTime:n/10}));
+ expect(events.map(event=>event.phase)).toEqual(['interim','final']);expect(calls).toBe(2);
+ session.close();
+});
+test('explicit Cantonese source formats spoken numbers in emitted captions',()=>{
+ const session=new SenseVoiceSession(new FakeVad(),{decode:()=> '约有四十人。',free(){}},'yue');
+ let finalText='';
+ for(let n=1;n<=100;n++)for(const event of session.accept(packet(1000),{capturedAt:n*100,mediaTime:n/10}))if(event.phase==='final')finalText=event.sourceText;
+ expect(finalText).toBe('约有40人。');
+ session.close();
+});
 test('feeds 100 ms PCM in exact VAD windows and emits a revisable interim',()=>{
  const vad=new FakeVad();let calls=0;const session=new SenseVoiceSession(vad,{decode:()=>`words ${++calls}`,free(){}});
  let events=[] as ReturnType<typeof session.accept>;

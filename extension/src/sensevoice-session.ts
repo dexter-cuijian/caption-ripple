@@ -1,10 +1,12 @@
 import type {AsrClock,AsrEvent} from './browser-asr';
+import {normalizeChineseNumerals} from './chinese-numerals';
 
 export interface VoiceSegment{start:number;samples:Float32Array}
 export interface VoiceDetector{acceptWaveform(samples:Float32Array):void;isEmpty():boolean;front():VoiceSegment;pop():void;reset():void;flush():void;free():void}
 export interface OfflineDecoder{decode(samples:Float32Array):string;free():void}
 const detectedLanguage=(text:string)=>/[\uac00-\ud7af\u1100-\u11ff]/u.test(text)?'ko':/[\u3040-\u30ff]/u.test(text)?'ja':/[\u3400-\u9fff]/u.test(text)?'zh':'en';
 const meaningful=(text:string)=>/[\p{L}\p{N}]/u.test(text);
+const minVoiceRms=.0003;
 
 /** Keeps a bounded interim window while the VAD owns final utterance boundaries. */
 export class SenseVoiceSession{
@@ -12,6 +14,7 @@ export class SenseVoiceSession{
  private pending=new Float32Array(0);private window:Float32Array[]=[];private windowSamples=0;private closed=false;
  constructor(private vad:VoiceDetector,private recognizer:OfflineDecoder,private sourceLanguage='auto'){}
  private event(phase:'interim'|'final',text:string,startSample:number,endSample:number,clock:AsrClock):AsrEvent{
+  if(this.sourceLanguage==='zh'||this.sourceLanguage==='yue')text=normalizeChineseNumerals(text);
   this.revision++;this.last=text;
   const origin=this.origin??clock.capturedAt;
   return{phase,segmentId:String(this.segment),revision:this.revision,sourceText:text,sourceLanguage:this.sourceLanguage==='auto'?detectedLanguage(text):this.sourceLanguage,start:Math.max(0,startSample/16000),end:Math.max(0,endSample/16000),mediaTime:clock.mediaTime,createdAt:Date.now(),speechStartAt:origin+startSample/16,audioEndAt:origin+endSample/16,engine:'sherpa-onnx/wasm-sensevoice-small-int8'};
@@ -44,7 +47,7 @@ export class SenseVoiceSession{
   if(sinceFinal>=160000){
    const window=new Float32Array(this.windowSamples);let at=0,power=0;
    for(const block of this.window){window.set(block,at);at+=block.length;for(const value of block)power+=value*value;}
-   if(Math.sqrt(power/Math.max(1,window.length))>.003){const text=this.recognizer.decode(window).trim();if(meaningful(text))events.push(this.event('final',text,this.sample-window.length,this.sample,clock));}
+   if(Math.sqrt(power/Math.max(1,window.length))>minVoiceRms){const text=this.recognizer.decode(window).trim();if(meaningful(text))events.push(this.event('final',text,this.sample-window.length,this.sample,clock));}
    this.vad.reset();this.vadOriginSample=this.sample;this.pending=new Float32Array(0);this.window=[];this.windowSamples=0;
    this.lastFinalSample=this.sample;this.lastInterimSample=this.sample;this.segment++;this.revision=0;this.last='';
    return events;
@@ -53,7 +56,7 @@ export class SenseVoiceSession{
    const window=new Float32Array(this.windowSamples);let at=0,power=0;
    for(const block of this.window){window.set(block,at);at+=block.length;for(const value of block)power+=value*value;}
    this.lastInterimSample=this.sample;
-   if(Math.sqrt(power/Math.max(1,window.length))>.003){
+   if(Math.sqrt(power/Math.max(1,window.length))>minVoiceRms){
     const text=this.recognizer.decode(window).trim();
     if(meaningful(text)&&text!==this.last)events.push(this.event('interim',text,this.sample-window.length,this.sample,clock));
    }
@@ -65,7 +68,7 @@ export class SenseVoiceSession{
   if(!events.length&&this.windowSamples){
    const window=new Float32Array(this.windowSamples);let at=0,power=0;
    for(const block of this.window){window.set(block,at);at+=block.length;for(const value of block)power+=value*value;}
-   if(Math.sqrt(power/window.length)>.003){const text=this.recognizer.decode(window).trim();if(meaningful(text))events.push(this.event('final',text,this.sample-window.length,this.sample,clock));}
+   if(Math.sqrt(power/window.length)>minVoiceRms){const text=this.recognizer.decode(window).trim();if(meaningful(text))events.push(this.event('final',text,this.sample-window.length,this.sample,clock));}
   }
   this.window=[];this.windowSamples=0;return events;
  }
