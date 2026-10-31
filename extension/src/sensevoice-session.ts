@@ -6,7 +6,7 @@ export interface OfflineDecoder{decode(samples:Float32Array):string;free():void}
 
 /** Keeps a bounded interim window while the VAD owns final utterance boundaries. */
 export class SenseVoiceSession{
- private sample=0;private origin:number|null=null;private segment=0;private revision=0;private last='';private lastFinalSample=0;private lastInterimSample=0;
+ private sample=0;private origin:number|null=null;private segment=0;private revision=0;private last='';private lastFinalSample=0;private lastInterimSample=0;private vadOriginSample=0;
  private pending=new Float32Array(0);private window:Float32Array[]=[];private windowSamples=0;private closed=false;
  constructor(private vad:VoiceDetector,private recognizer:OfflineDecoder){}
  private event(phase:'interim'|'final',text:string,startSample:number,endSample:number,clock:AsrClock):AsrEvent{
@@ -19,9 +19,10 @@ export class SenseVoiceSession{
   while(!this.vad.isEmpty()){
    const segment=this.vad.front();
    const text=this.recognizer.decode(segment.samples).trim();
-   if(text)events.push(this.event('final',text,segment.start,segment.start+segment.samples.length,clock));
+   const start=this.vadOriginSample+segment.start,end=start+segment.samples.length;
+   if(text)events.push(this.event('final',text,start,end,clock));
    this.vad.pop();this.segment++;this.revision=0;this.last='';
-   this.lastFinalSample=segment.start+segment.samples.length;this.lastInterimSample=this.sample;
+   this.lastFinalSample=end;this.lastInterimSample=this.sample;
    this.window=[];this.windowSamples=0;
   }
   return events;
@@ -38,6 +39,14 @@ export class SenseVoiceSession{
   this.pending=combined.slice(offset);
   const events=this.drain(clock);
   const sinceFinal=this.sample-this.lastFinalSample;
+  if(sinceFinal>=160000){
+   const window=new Float32Array(this.windowSamples);let at=0,power=0;
+   for(const block of this.window){window.set(block,at);at+=block.length;for(const value of block)power+=value*value;}
+   if(Math.sqrt(power/Math.max(1,window.length))>.003){const text=this.recognizer.decode(window).trim();if(text)events.push(this.event('final',text,this.sample-window.length,this.sample,clock));}
+   this.vad.reset();this.vadOriginSample=this.sample;this.pending=new Float32Array(0);this.window=[];this.windowSamples=0;
+   this.lastFinalSample=this.sample;this.lastInterimSample=this.sample;this.segment++;this.revision=0;this.last='';
+   return events;
+  }
   if(sinceFinal>=80000&&sinceFinal<240000&&this.sample-this.lastInterimSample>=80000){
    const window=new Float32Array(this.windowSamples);let at=0,power=0;
    for(const block of this.window){window.set(block,at);at+=block.length;for(const value of block)power+=value*value;}
@@ -50,6 +59,6 @@ export class SenseVoiceSession{
   return events;
  }
  flush(clock:AsrClock){this.vad.flush();return this.drain(clock);}
- reset(){this.vad.reset();this.sample=0;this.origin=null;this.segment++;this.revision=0;this.last='';this.lastFinalSample=0;this.lastInterimSample=0;this.pending=new Float32Array(0);this.window=[];this.windowSamples=0;}
+ reset(){this.vad.reset();this.sample=0;this.origin=null;this.segment++;this.revision=0;this.last='';this.lastFinalSample=0;this.lastInterimSample=0;this.vadOriginSample=0;this.pending=new Float32Array(0);this.window=[];this.windowSamples=0;}
  close(){if(this.closed)return;this.closed=true;this.vad.free();this.recognizer.free();}
 }
