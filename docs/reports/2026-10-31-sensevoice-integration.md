@@ -11,6 +11,7 @@
 - A detached clean checkout passed `npm ci --ignore-scripts`, 61 server tests, 108 extension tests, `npm run typecheck`, `npm run build:sensevoice`, model hash verification and no source maps in the built extension. The clean checkout and its temporary build were removed after verification.
 - The actual compiled `sense-worker.js` was loaded in a regular Chrome module worker through a localhost wrapper and fed the first 75 seconds of the official PBS NewsHour Jakarta video as 100 ms PCM packets. It loaded, accepted a reset, emitted revisable interim captions and VAD final captions without worker errors. First three final segments covered the 88-word official PBS reference. This accelerated PCM feed completed in about 34 seconds after worker creation; it does **not** measure real-time tab capture latency.
 - Chrome showed roughly 970 MB of memory use for the local probe tab at completion. This is a browser-tab figure, not isolated model RSS or a 60-minute trend.
+- A separate 10-second `maxSpeechDuration` browser probe still returned an approximately 15-second first VAD segment; its full-segment decode took about 3.55 seconds. The VAD setting alone does not prove the required ≤3-second P95 final latency. The setting remains 15 seconds in the candidate until real-time accuracy and latency can be compared.
 
 ## Still required for release
 
