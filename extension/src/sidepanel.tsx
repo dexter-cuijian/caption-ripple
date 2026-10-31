@@ -78,7 +78,8 @@ function SidePanel(){
    // Keep the permission request in the click gesture; Chrome prompts before granting access.
    const granted=await chrome.permissions.request({origins:['http://*/*','https://*/*']});
    if(!granted){setError('未授予网页访问权限；跨站切换后需在新页面点击扩展图标。');return;}
-   const result=await send('background','refresh-page',{tabId:tab?.id});
+   if(!state.tabId||state.phase==='idle'){setError('已授权网页访问；下次启动录制时可自动检测跨网页和跨域视频。');return;}
+   const result=await send('background','refresh-page',{tabId:state.tabId});
    if(result.error)throw new Error(result.error);
    setState(result);setError(result.pageAccessWarning??'已授权网页访问，当前页面字幕已重新检测。');
   }catch(e){setError(String(e));}
