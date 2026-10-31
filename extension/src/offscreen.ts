@@ -7,6 +7,7 @@ import {FinalTranslator,LiveTranslator,translatorAPI,type NativeTranslator} from
 import {RevisionGate,terminalClose} from './core';
 import {retainCaptionOnReset} from './media';
 import {captureAnchor,capturedAt,mediaTimeAt} from './capture-clock';
+import {BrowserMetrics} from './browser-metrics';
 import {defaults, initialState,send, type Config,type VideoInfo} from './shared';
 let context:AudioContext|undefined,stream:MediaStream|undefined,source:MediaStreamAudioSourceNode|undefined,worklet:AudioWorkletNode|undefined,silent:GainNode|undefined,playback:GainNode|undefined;
 let socket:WebSocket|undefined,asrWorker:Worker|undefined,retry:ReturnType<typeof setTimeout>|undefined,active=false,accepted=false,attempt=0;
@@ -16,7 +17,7 @@ let pageCaptionUntil=0,pageCaptionMode=false;
 const scopeUrl=()=>video?.url||captureScopeUrl;
 const matched=(text:string,source:string,target:string)=>matchGlossary(text,effectiveGlossaryEntries(glossary.entries),source,target,scopeUrl());
 let config:Config=defaults,token='',video:VideoInfo|undefined;
-let state:import('./shared').State={...initialState};const revisions=new RevisionGate();
+let state:import('./shared').State={...initialState};const revisions=new RevisionGate(),browserMetrics=new BrowserMetrics();
 const publish=(update:Partial<typeof state>)=>{state={...state,...update,sessionId,epoch,contextState:context?.state??'none'};void send('background','state',{state}).catch(()=>{});};
 
 const nativeProvider=new NativeTranslationProvider(translatorAPI),localProvider=new LocalModelTranslationProvider(()=>token,fetch,matched);
@@ -52,6 +53,7 @@ const liveTranslations=new LiveTranslator({translate:translateDraft},event=>{
 
 function receiveSubtitle(data:any){
  if(!revisions.accept(data))return;
+ if(config.recognitionEngine!=='companion'&&data.engine!=='page-caption')browserMetrics.source(data);
  if(data.engine==='page-caption')data.sourceRaw=data.sourceText;
  else{const corrected=correctRecognizedNames(data,glossary.entries,scopeUrl());data.sourceRaw=corrected.sourceRaw;data.sourceText=corrected.sourceText;}
  data.glossaryVersion=glossary.version;
@@ -122,6 +124,7 @@ function connect(){
  };
 }
 async function stop(){
+ browserMetrics.clearPending();
  pageCaptionMode=false;pageCaptionUntil=0;browserOutstanding=0;
  latestSource=undefined;active=false;accepted=false;clearTimeout(retry);translations.reset('',-1);liveTranslations.reset('',-1);proofreader.reset('',-1);
  if(socket?.readyState===WebSocket.OPEN)socket.send(JSON.stringify({type:'stop',sessionId,epoch}));socket?.close();socket=undefined;asrWorker?.terminate();asrWorker=undefined;
@@ -181,7 +184,13 @@ chrome.runtime.onMessage.addListener((message,_sender,reply)=>{
   if(message.kind==='stop')await stop();
   if(message.kind==='page-location'&&/^https?:\/\//.test(message.url)&&message.url!==captureScopeUrl){captureScopeUrl=message.url;video=undefined;if(active)reset('页面地址已更新，重新应用当前范围术语');}
   if(message.kind==='video'){video=message.video;if(message.reset&&active)reset(message.reset);}
-  if(message.kind==='rendered'&&accepted&&socket?.readyState===WebSocket.OPEN&&!String(message.event?.segmentId??'').startsWith('page-'))socket.send(JSON.stringify(message.event));
+  if(message.kind==='rendered'){
+   if(config.recognitionEngine!=='companion'){
+    const metric=browserMetrics.rendered(message.event);
+    if(metric)void chrome.storage.local.set({browserMetrics:browserMetrics.snapshot()}).catch(()=>{});
+   }
+   if(accepted&&socket?.readyState===WebSocket.OPEN&&!String(message.event?.segmentId??'').startsWith('page-'))socket.send(JSON.stringify(message.event));
+  }
   return {ok:true};
  })().then(reply,error=>{publish({phase:'error',message:String(error)});reply({ok:false,error:String(error)});});return true;
 });
