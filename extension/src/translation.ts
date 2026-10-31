@@ -39,7 +39,7 @@ export class LiveTranslator{
   this.latest={...event,targetLanguage,pageText,pageIndex};this.schedule();
  }
  finalize(event:any){if(this.latest?.segmentId===event.segmentId){this.latest=undefined;clearTimeout(this.timer);this.timer=undefined;}}
- private schedule(){if(this.timer||this.busy||!this.latest)return;this.timer=setTimeout(()=>{this.timer=undefined;void this.run();},Math.max(300,this.lastAttempt+this.intervalMs-Date.now()));}
+ private schedule(){if(this.timer||this.busy||!this.latest)return;this.timer=setTimeout(()=>{this.timer=undefined;void this.run();},Math.max(75,this.lastAttempt+this.intervalMs-Date.now()));}
  private async run(){const task=this.latest;if(!task||this.busy||task.pageText===this.lastText)return;this.busy=true;this.lastAttempt=Date.now();this.lastText=task.pageText;
   const source=task.sourceLanguage==='yue'?'zh':task.sourceLanguage==='auto'?(/[\u3400-\u9fff]/.test(task.pageText)?'zh':'en'):task.sourceLanguage;
   try{if(source===task.targetLanguage)return;

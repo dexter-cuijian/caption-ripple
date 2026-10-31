@@ -12,7 +12,7 @@ async function load(){
   const response=await fetch(asset(name));if(!response.ok)throw new Error(`${name}: HTTP ${response.status}`);
   module.FS_createDataFile('/',`model-${index}`,new Uint8Array(await response.arrayBuffer()),true,false,false);
  }
- const recognizer=new runtime.OfflineRecognizer({featConfig:{sampleRate:16000,featureDim:80},modelConfig:{senseVoice:{model:'/model-0',language:'auto',useInverseTextNormalization:1},tokens:'/model-1',numThreads:2,provider:'cpu',debug:0}},module);
+ const recognizer=new runtime.OfflineRecognizer({featConfig:{sampleRate:16000,featureDim:80},modelConfig:{senseVoice:{model:'/model-0',language:'auto',useInverseTextNormalization:1},tokens:'/model-1',numThreads:4,provider:'cpu',debug:0}},module);
  const vad=runtime.createVad(module,{sileroVad:{model:'/model-2',threshold:.5,minSilenceDuration:.5,minSpeechDuration:.2,windowSize:512,maxSpeechDuration:15},sampleRate:16000,numThreads:1,provider:'cpu',bufferSizeInSeconds:30});
  session=new SenseVoiceSession(vad,{decode(samples:Float32Array){const stream=recognizer.createStream();try{stream.acceptWaveform(16000,samples);recognizer.decode(stream);return recognizer.getResult(stream).text;}finally{stream.free();}},free(){recognizer.free();}});
  status('ready');

@@ -19,6 +19,7 @@ async function ensureImportRestored(){
 async function clearImport(){imported=undefined;await chrome.storage.session.remove('importSession');}
 const interimSavedAt=new Map<string,number>();
 const interimWrites=new Set<Promise<unknown>>();
+let metricWrite=Promise.resolve();
 async function retireHistory(sessionId:string|undefined,epoch:number,reason:string){
  if(!sessionId)return;
  await Promise.allSettled([...interimWrites]);
@@ -125,11 +126,20 @@ chrome.runtime.onMessage.addListener((message,sender,reply)=>{
   if(message.kind==='refresh-page'&&state.phase!=='idle'&&message.tabId===state.tabId){await injectCurrentPage(state.tabId!);return state;}
   if(message.kind==='start')await start(message.tabId);
   if(message.kind==='import-subtitles')return await importSubtitles(message);
-  if(message.kind==='stop'){retire(state.sessionId,state.epoch);interimSavedAt.clear();cancelPanelTranslations('停止后已取消翻译');await retireHistory(state.sessionId,state.epoch,'停止后已取消翻译');await retireInterims();await clearImport();await send('offscreen','stop');await broadcast('clear');videos.clear();state={...initialState};}
+  if(message.kind==='stop'){await send('offscreen','stop');retire(state.sessionId,state.epoch);interimSavedAt.clear();cancelPanelTranslations('停止后已取消翻译');await retireHistory(state.sessionId,state.epoch,'停止后已取消翻译');await retireInterims();await clearImport();await broadcast('clear');videos.clear();state={...initialState};}
   if(message.kind==='prepare-translation'){await offscreen();return await send('offscreen','prepare-translation',{sourceLanguage:message.sourceLanguage,targetLanguage:message.targetLanguage});}
   if(message.kind==='cancel-panel-translation'){const pending=pendingTranslations.get(message.requestId);if(pending){clearTimeout(pending.timer);pendingTranslations.delete(message.requestId);pending.resolve({ok:false,error:'翻译已取消'});panel?.postMessage({kind:'cancel-translation',id:message.requestId});}return{ok:true};}
   if(message.kind==='panel-translate')return await translateInPanel(message);
   if(message.kind==='retry-translation')return await send('offscreen','retry-translation');
+  if(message.kind==='browser-metric'){
+   const input=message.metric??{};
+   if(typeof input.sessionId==='string'&&typeof input.segmentId==='string'&&typeof input.engine==='string'&&['interim','final'].includes(input.phase)&&[input.epoch,input.revision,input.createdAt,input.audioEndAt,input.renderedAt,input.audioEndToRenderMs,input.decodeToRenderMs].every((value:unknown)=>typeof value==='number'&&Number.isFinite(value))){
+    const metric={sessionId:input.sessionId,epoch:input.epoch,segmentId:input.segmentId,revision:input.revision,phase:input.phase,engine:input.engine,createdAt:input.createdAt,audioEndAt:input.audioEndAt,speechStartAt:typeof input.speechStartAt==='number'?input.speechStartAt:null,renderedAt:input.renderedAt,audioEndToRenderMs:input.audioEndToRenderMs,decodeToRenderMs:input.decodeToRenderMs,speechStartToRenderMs:typeof input.speechStartToRenderMs==='number'?input.speechStartToRenderMs:null,hasTranslation:input.hasTranslation===true,translationRevision:input.hasTranslation===true&&typeof input.translationRevision==='number'?input.translationRevision:undefined};
+    metricWrite=metricWrite.catch(()=>{}).then(async()=>{const stored=await chrome.storage.local.get('browserMetrics');const rows=Array.isArray(stored.browserMetrics)?stored.browserMetrics:[];rows.push(metric);await chrome.storage.local.set({browserMetrics:rows.slice(-1200)});});
+    await metricWrite;
+   }
+   return{ok:true};
+  }
   if(message.kind==='state'&&!imported&&message.state?.sessionId===state.sessionId)state={...state,...message.state,tabId:state.tabId,video:state.video,videos:state.videos,captureUrl:state.captureUrl,captureTitle:state.captureTitle,pageAccessWarning:state.pageAccessWarning};
   if(message.kind==='epoch'){retire(message.sessionId,message.previousEpoch??state.epoch);interimSavedAt.clear();cancelPanelTranslations('识别段重置，已取消旧翻译');await retireHistory(message.sessionId,message.previousEpoch??state.epoch,'识别段重置，已取消旧翻译');state.epoch=message.epoch;if(!retainCaptionOnReset(message.reason))state.latestTranslation='';await broadcast('epoch',{sessionId:message.sessionId,epoch:message.epoch,reason:message.reason});}
   if(message.kind==='subtitle'&&message.event.sessionId===state.sessionId&&message.event.epoch===state.epoch){

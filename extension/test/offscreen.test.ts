@@ -19,7 +19,7 @@ beforeEach(async()=>{
  vi.stubGlobal('chrome',{runtime:{onMessage:{addListener:(fn:any)=>listener=fn},sendMessage:async(message:any)=>{runtimeMessages.push(message);if(message.kind==='panel-translate')return new Promise(resolve=>{translateFinish=resolve;});return{};},getURL:(s:string)=>s}});
  vi.stubGlobal('navigator',{mediaDevices:{getUserMedia:async()=>{const track={stop:vi.fn(),onended:null};tracks.push(track);return{getTracks:()=>[track],getAudioTracks:()=>[track]};}}});
  vi.stubGlobal('AudioContext',FakeContext);vi.stubGlobal('AudioWorkletNode',FakeNode);vi.stubGlobal('WebSocket',FakeSocket);
- vi.stubGlobal('Worker',class {onmessage:any;onerror:any;messages:any[]=[];terminate=vi.fn();constructor(public url:string){workers.push(this);}postMessage(message:any){this.messages.push(message);} });
+ vi.stubGlobal('Worker',class {onmessage:any;onerror:any;messages:any[]=[];listeners=new Map<string,Set<(event:any)=>void>>();terminate=vi.fn();constructor(public url:string){workers.push(this);}addEventListener(kind:string,listener:(event:any)=>void){if(!this.listeners.has(kind))this.listeners.set(kind,new Set());this.listeners.get(kind)!.add(listener);}removeEventListener(kind:string,listener:(event:any)=>void){this.listeners.get(kind)?.delete(listener);}postMessage(message:any){this.messages.push(message);if(message.kind==='flush')queueMicrotask(()=>{const event={data:{kind:'flushed',sessionId:message.sessionId,epoch:message.epoch}};this.onmessage?.(event);for(const listener of this.listeners.get('message')??[])listener(event);});} });
  await import('../src/offscreen');
 });
 test('muted output keeps the analysis branch connected and can be switched live',async()=>{
@@ -38,6 +38,15 @@ test('browser mode starts without a socket and routes worker source through exis
  expect(workers[0].messages.some((message:any)=>message.kind==='pcm')).toBe(true);
  workers[0].onmessage({data:{kind:'subtitle',event:{type:'subtitle',sessionId:'session',epoch:0,segmentId:'0',revision:1,phase:'interim',sourceText:'HELLO',sourceLanguage:'en',engine:'sherpa-onnx/wasm-zipformer-zh-en'}}});
  expect(runtimeMessages.some(message=>message.kind==='subtitle'&&message.event.sourceText==='HELLO')).toBe(true);
+ await command('stop');
+});
+test('rendered browser timing is sent to background without offscreen storage access',async()=>{
+ await start({currentTime:1,observedAt:Date.now(),playbackRate:1,paused:false},{config:{recognitionEngine:'browser-sensevoice',targetLanguage:'zh'}});
+ workers[0].onmessage({data:{kind:'ready'}});workers[0].onmessage({data:{kind:'reset-done',sessionId:'session',epoch:0}});
+ workers[0].onmessage({data:{kind:'subtitle',event:{type:'subtitle',sessionId:'session',epoch:0,segmentId:'0',revision:1,phase:'final',sourceText:'Hello',sourceLanguage:'en',engine:'sherpa-onnx/wasm-sensevoice-small-int8',createdAt:1200,audioEndAt:1000,speechStartAt:100}}});
+ const response=await command('rendered',{event:{type:'rendered',sessionId:'session',epoch:0,segmentId:'0',revision:1,renderedAt:1300}});
+ expect(response.ok).toBe(true);
+ expect(runtimeMessages).toContainEqual(expect.objectContaining({kind:'browser-metric',metric:expect.objectContaining({audioEndToRenderMs:300,decodeToRenderMs:100})}));
  await command('stop');
 });
 test('browser decoder backlog is bounded and starts a new epoch when decoding falls behind',async()=>{

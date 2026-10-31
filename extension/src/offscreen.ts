@@ -156,6 +156,8 @@ async function performStop(){
 }
 async function start(message:any){
  await stop();seq=0;sampleStart=0;anchor=null;attempt=0;config={...defaults,...message.config};glossary={version:message.glossary?.version??0,entries:validateGlossary(message.glossary?.entries??[])};captureScopeUrl=message.scopeUrl??'';token=message.token;sessionId=message.sessionId;epoch=0;revisions.reset(sessionId,epoch);translations.reset(sessionId,epoch);liveTranslations.reset(sessionId,epoch);proofreader.reset(sessionId,epoch);video=message.video;
+ const warmSource=config.sourceLanguage==='auto'?'en':config.sourceLanguage==='yue'?'zh':config.sourceLanguage;
+ if(config.translationEngine==='chrome'&&warmSource!==config.targetLanguage)void nativeProvider.translate(({en:'Hello.',ja:'こんにちは。',ko:'안녕하세요。',zh:'你好。'} as Record<string,string>)[warmSource]??'Hello.',warmSource,config.targetLanguage).catch(()=>{});
  try{
  stream=await navigator.mediaDevices.getUserMedia({audio:{mandatory:{chromeMediaSource:'tab',chromeMediaSourceId:message.streamId}} as MediaTrackConstraints,video:false});
  context=new AudioContext();await context.audioWorklet.addModule(chrome.runtime.getURL('worklet.js'));await context.resume();
@@ -207,7 +209,7 @@ chrome.runtime.onMessage.addListener((message,_sender,reply)=>{
   if(message.kind==='rendered'){
    if(config.recognitionEngine!=='companion'){
     const metric=browserMetrics.rendered(message.event);
-    if(metric)void chrome.storage.local.set({browserMetrics:browserMetrics.snapshot()}).catch(()=>{});
+    if(metric)void send('background','browser-metric',{metric}).catch(()=>{});
    }
    if(accepted&&socket?.readyState===WebSocket.OPEN&&!String(message.event?.segmentId??'').startsWith('page-'))socket.send(JSON.stringify(message.event));
   }

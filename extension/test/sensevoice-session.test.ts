@@ -78,6 +78,12 @@ test('flush finalizes a speech tail that VAD has not ended',()=>{
  ]);
  session.close();
 });
+test('punctuation-only decode does not create a caption at stop',()=>{
+ const session=new SenseVoiceSession(new FakeVad(),{decode:()=>'.',free(){}});
+ for(let n=1;n<=20;n++)session.accept(packet(),{capturedAt:n*100,mediaTime:n/10});
+ expect(session.flush({capturedAt:2000,mediaTime:2})).toEqual([]);
+ session.close();
+});
 test('labels auto Japanese and Korean speech and honors an explicit Cantonese source',()=>{
  const vad=new FakeVad();let text='日本語です';
  const session=new SenseVoiceSession(vad,{decode:()=>text,free(){}});
