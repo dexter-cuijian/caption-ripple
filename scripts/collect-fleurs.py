@@ -20,7 +20,7 @@ destination = root / '.work' / 'fixtures' / args.language
 destination.mkdir(parents=True, exist_ok=True)
 base = f'https://huggingface.co/datasets/google/fleurs/resolve/main/data/{args.language}'
 table = subprocess.check_output(['curl', '-fLsS', '--retry', '2', '--max-time', '60', f'{base}/dev.tsv']).decode()
-rows = {row[1]: row for row in csv.reader(io.StringIO(table), delimiter='\t')}
+rows = {row[1]: row for row in csv.reader(io.StringIO(table), delimiter='\t', quoting=csv.QUOTE_NONE)}
 download = subprocess.Popen(['curl', '-fLsS', '--retry', '2', '--max-time', '600', f'{base}/audio/dev.tar.gz'], stdout=subprocess.PIPE)
 samples = []
 duration = 0
