@@ -12,4 +12,6 @@ The Cantonese model output is Simplified Chinese while FLEURS references are Tra
 
 English 40 clips yielded 44/811 WER (5.43%) and Mandarin 28 clips yielded 44/930 CER (4.73%) in the earlier [browser feasibility report](2026-10-31-sensevoice-browser-probe.md). Together these five-language probes justify installed-Chrome evaluation, not a stable default or release.
 
+The candidate worker uses SenseVoice `language: auto`, so the same clips were rerun **natively** with that exact language setting. Auto results were English **45/811 WER (5.55%)**, Mandarin **45/930 CER (4.84%)**, Japanese **57/1180 CER (4.83%)**, Korean **132/1207 CER (10.94%)**, and Cantonese **116/881 CER (13.17%)** after the same OpenCC `t2s` normalization. The corresponding script-sensitive Cantonese score was 361/881 (40.98%). Auto language selection stayed close to explicit language selection on these short, clean clips, but the Chrome WASM implementation and segmented live audio remain unmeasured for the multilingual set.
+
 The Korean collector initially failed on one reference containing quote characters because the TSV parser treated them as field quoting. The collector now uses `csv.QUOTE_NONE`; the 305-second Korean set was recollected successfully. No transcript was manually edited for scoring.

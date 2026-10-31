@@ -23,6 +23,7 @@
 
 - Action-time user confirmation for clean installation of the new 10-second candidate is pending. Then real tabCapture on local and external news, rendered latency P50/P95, and independent WER/CER/translation review are required.
 - Public live media, YouTube, Bilibili, local, iframe and multi-video sites; playback rates; fault recovery; 60-minute stability with resource measurements; at least 5 minutes each of independently referenced English, Japanese, Korean and Cantonese; and 50 reviewed translations.
+- The current translation UI only offers English/Chinese source choices, and `auto` translation routing distinguishes English from Chinese by script. Japanese and Korean ASR reference scores therefore do **not** establish correctly routed translation for those languages; multilingual translation support needs separate implementation and review if included in the stable-release scope.
 - The standalone probe ends at exactly 75 seconds in the middle of an utterance, so its final transcript omits that tail. Production stop/pause behavior still needs real Chrome verification.
 
 No stable release has been published from this candidate.
