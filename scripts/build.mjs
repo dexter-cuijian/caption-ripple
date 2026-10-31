@@ -33,9 +33,13 @@ if(process.env.CAPTION_SENSEVOICE==='1'){
   if(bytes!==entry.size||actual.digest('hex')!==entry.sha256)throw new Error(`SenseVoice asset failed pinned verification: ${name}`);
   await copyFile(path,`${dest}${name}`,constants.COPYFILE_FICLONE);
  }
- for(const name of ['index.js','vad-asr-qejT8Rqh.js'])await copyFile(`${input}runtime/dist/${name}`,`${dest}${name}`);
- await copyFile(`${input}runtime/dist/prebuilt/vad-asr.wasm`,`${dest}prebuilt/vad-asr.wasm`,constants.COPYFILE_FICLONE);
- await copyFile(`${input}runtime/LICENSE`,`${dest}RUNTIME_LICENSE.txt`);
+ for(const [name,entry] of Object.entries(senseModel.runtimeFiles)){
+  const path=`${input}runtime/${name}`;let bytes;try{bytes=(await stat(path)).size;}catch{throw new Error(`SenseVoice runtime missing: ${name}`);}
+  const actual=createHash('sha256');for await(const chunk of createReadStream(path))actual.update(chunk);
+  if(bytes!==entry.size||actual.digest('hex')!==entry.sha256)throw new Error(`SenseVoice runtime failed pinned verification: ${name}`);
+  const output=name==='LICENSE'?'RUNTIME_LICENSE.txt':name.replace(/^dist\//,'');
+  await copyFile(path,`${dest}${output}`,constants.COPYFILE_FICLONE);
+ }
  await copyFile(`${root}vendor/sensevoice/MODEL_LICENSE.txt`,`${dest}MODEL_LICENSE.txt`);
 }
 console.log(`Load unpacked extension: ${outdir}`);

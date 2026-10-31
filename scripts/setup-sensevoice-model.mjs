@@ -25,12 +25,13 @@ async function download(url,path,entry){
 async function extractRuntime(archive){
  const target=`${directory}runtime`;
  await mkdir(target,{recursive:true});
- const required=['dist/index.js','dist/vad-asr-qejT8Rqh.js','dist/prebuilt/vad-asr.wasm','LICENSE'];
- const complete=await Promise.all(required.map(async name=>{try{await stat(`${target}/${name}`);return true;}catch{return false;}}));
+ const required=Object.keys(lock.runtimeFiles);
+ const complete=await Promise.all(required.map(name=>valid(`${target}/${name}`,lock.runtimeFiles[name])));
  if(complete.every(Boolean))return;
  const child=spawn('tar',['-xzf',archive,'-C',target,'--strip-components=1',...required.map(name=>`package/${name}`)],{stdio:'inherit'});
  const code=await new Promise((resolve,reject)=>{child.once('error',reject);child.once('close',resolve);});
  if(code!==0)throw new Error(`Runtime archive extraction failed (${code})`);
+ for(const name of required)if(!await valid(`${target}/${name}`,lock.runtimeFiles[name]))throw new Error(`Runtime integrity failed: ${name}`);
 }
 const source=`${lock.modelSource}/resolve/${lock.modelRevision}/`;
 await download(`${source}${lock.model.name}`,`${directory}${lock.model.name}`,lock.model);

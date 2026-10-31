@@ -4,5 +4,11 @@
   "model": {"name": "model.int8.onnx", "size": 239233841, "sha256": "c71f0ce00bec95b07744e116345e33d8cbbe08cef896382cf907bf4b51a2cd51"},
   "tokens": {"name": "tokens.txt", "size": 315894, "sha256": "f449eb28dc567533d7fa59be34e2abca8784f771850c78a47fb731a31429a1dc"},
   "runtime": {"url": "https://registry.npmjs.org/@sherpaw/vad-asr/-/vad-asr-0.3.0.tgz", "size": 3798396, "sha256": "dff12a3b42ab09f2972e26102aa3419aa8dbcad24b9da012e273e932cd9e10b9", "version": "0.3.0"},
+  "runtimeFiles": {
+    "dist/index.js": {"size": 39701, "sha256": "ade19ae40bfc7f70bd2648c4b9d464da7bc1d186a6d3aa65b8c683e4080c7010"},
+    "dist/vad-asr-qejT8Rqh.js": {"size": 97126, "sha256": "b308315b462360d120594a7e30753927913896fb7e1bccbde124bbdab9339e23"},
+    "dist/prebuilt/vad-asr.wasm": {"size": 13455394, "sha256": "d84a23079b93e0530467d784cf3b7f530a0b8ce0dbc86147528c56aacc8f80c3"},
+    "LICENSE": {"size": 11357, "sha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4"}
+  },
   "vad": {"url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/silero_vad_v5.onnx", "size": 2313101, "sha256": "6b99cbfd39246b6706f98ec13c7c50c6b299181f2474fa05cbc8046acc274396"}
 }
