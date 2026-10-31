@@ -72,6 +72,17 @@ function SidePanel(){
  }).catch(e=>{if(generation===prepareVersion.current)setTranslation(`本地翻译准备失败：${String(e)}`);}).finally(()=>{setPreparing(false);setProgress(undefined);});
  }
  function openHistory(){void chrome.tabs.create({url:chrome.runtime.getURL('history.html')}).catch(e=>setError(String(e)));}
+ async function allowPageAccess(){
+  setError('');
+  try{
+   // Keep the permission request in the click gesture; Chrome prompts before granting access.
+   const granted=await chrome.permissions.request({origins:['http://*/*','https://*/*']});
+   if(!granted){setError('未授予网页访问权限；跨站切换后需在新页面点击扩展图标。');return;}
+   const result=await send('background','refresh-page',{tabId:tab?.id});
+   if(result.error)throw new Error(result.error);
+   setState(result);setError(result.pageAccessWarning??'已授权网页访问，当前页面字幕已重新检测。');
+  }catch(e){setError(String(e));}
+ }
  const active=state.phase!=='idle'&&state.phase!=='error';
  const currentHistory=compactHistory(compactRows,compactTotal,state,tab?.id);
  const liveTarget=liveSubtitleText(state.latestDisplayText??state.latestText);
@@ -85,7 +96,7 @@ function SidePanel(){
  <label>翻译引擎<select value={config.translationEngine} onChange={event=>change('translationEngine',event.target.value)}><option value="chrome">Chrome 本地翻译{config.recognitionEngine==='companion'?'，Hy-MT2 备用':''}</option>{config.recognitionEngine==='companion'&&<option value="local">本机 Hy-MT2</option>}<option value="off">关闭翻译</option></select></label>
  {config.recognitionEngine==='companion'&&<><label className="check"><input type="checkbox" checked={config.proofreading} onChange={event=>change('proofreading',event.target.checked)}/>本机上下文校对（未人工核验）</label><p className="muted">仅发送已捕获字幕到 127.0.0.1。优先显示初稿，再修订上一段；输入错词仍可能影响译文。</p></>}
  <div className="field-row"><label>译文字号<input type="number" min="16" max="72" value={config.fontSize} onChange={event=>change('fontSize',Math.max(16,Math.min(72,Number(event.target.value))))}/></label><label>字幕位置<select value={config.position} onChange={event=>change('position',event.target.value)}><option value="bottom">视频下方</option><option value="top">视频上方</option></select></label></div><label>界面与字幕主题<select value={config.theme} onChange={event=>change('theme',event.target.value)}><option value="dark">深色</option><option value="light">浅色</option><option value="high-contrast">高对比度</option></select></label><label>背景不透明度 {Math.round(config.opacity*100)}%<input type="range" min="0" max="1" step=".02" value={config.opacity} onChange={event=>change('opacity',Number(event.target.value))}/></label>
- <button onClick={()=>{void chrome.permissions.request({origins:['http://*/*','https://*/*']}).then(ok=>setError(ok?'跨域视频已授权，请重新开始当前页':'跨域权限未授权，使用主页面或视口字幕'));}}>允许跨域 iframe 视频（可选）</button>
+ <button onClick={()=>void allowPageAccess()}>允许跨网页与跨域视频字幕（可选）</button><p className="muted">授予全部 HTTP/HTTPS 网站访问权限后，跨站切换或跨域 iframe 中的视频也可自动重新检测。未授权时，切换站点后需在新页面点击扩展图标。</p>
  {!!state.videos?.length&&<label>字幕目标视频<select value={state.video?`${state.video.frameId}:${state.video.id}`:''} onChange={event=>{void send('background','select-video',{id:event.target.value}).then(setState);}}>{state.videos.map(video=><option key={`${video.frameId}:${video.id}`} value={`${video.frameId}:${video.id}`}>{video.paused?'暂停':'播放'} · {(video.label||video.title).slice(0,40)}</option>)}</select></label>}
  <p className="muted">原文按中文/英文文字比例判断；连续 3 个最终段后锁定。锁定：{state.languageLock||'尚未锁定'}。切换语言会开始新识别段。</p><p className="muted">侧栏左右位置由 Chrome 外观设置决定；扩展无法强制右侧。</p></section>}
  <section className="live"><div className="section-title"><h2>正在听</h2><span className="muted">实时原文</span></div><p className="live-source">{liveTarget?typedLive:'播放视频后，识别文字会显示在这里。'}</p>{state.latestTranslation&&state.latestTranslation!==state.latestText&&<><p className="live-translation">{subtitlePage(state.latestTranslation).text}</p><small className="muted">{(state.latestTranslationRevision??1)>1?'已修订 · 未人工核验':state.translationStatus==='live-ready'?'实时译文 · 略有延迟':'译文初稿'}</small></>}{state.translationError&&<p className="error" role="alert">{state.translationError}</p>}<p className="muted">识别中的原文按稳定片段翻译；最终段完成后更新译文。</p></section>
