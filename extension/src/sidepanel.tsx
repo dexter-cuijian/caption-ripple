@@ -74,6 +74,7 @@ function SidePanel(){
  }).catch(e=>{if(generation===prepareVersion.current)setTranslation(`本地翻译准备失败：${String(e)}`);}).finally(()=>{setPreparing(false);setProgress(undefined);});
  }
  function openHistory(){void chrome.tabs.create({url:chrome.runtime.getURL('history.html')}).catch(e=>setError(String(e)));}
+ async function exportBrowserMetrics(){try{const {browserMetrics}=await chrome.storage.local.get('browserMetrics');const blob=new Blob([JSON.stringify({exportedAt:new Date().toISOString(),metrics:Array.isArray(browserMetrics)?browserMetrics:[]},null,2)],{type:'application/json'});const url=URL.createObjectURL(blob);const link=document.createElement('a');link.href=url;link.download=`caption-ripple-timing-${Date.now()}.json`;link.click();setTimeout(()=>URL.revokeObjectURL(url),10000);}catch(e){setError(`时序诊断导出失败：${String(e)}`);}}
  async function allowPageAccess(){
   setError('');
   try{
@@ -108,6 +109,6 @@ function SidePanel(){
  <GlossaryEditor videoUrl={state.video?.url||state.captureUrl||tab?.url||''}/>
  <section className="translation-control"><div className="section-title"><h2>实时翻译</h2><button disabled={preparing||config.translationEngine==='off'} onClick={prepare}>{preparing?'准备中…':'准备本地翻译'}</button></div><p className="muted" role="status">{config.translationEngine==='off'?'翻译已关闭':`${translation} · availability: ${availability}`}</p>{progress!==undefined&&<progress value={progress} max="1" aria-label="翻译模型下载进度"/>}{state.translationError&&<p className="error">{state.translationError}</p>}<p className="muted">当前执行环境：{state.translationContext||'尚未翻译'} · 校对：{state.proofreadingStatus||'等待后续语境'}</p>{state.proofreadingError&&<p className="error">{state.proofreadingError}</p>}{state.glossaryStatus&&<p className="muted">{state.glossaryStatus}</p>}</section>
 </details>
- <details className="diagnostics"><summary>音频诊断</summary><dl><dt>音频 RMS</dt><dd>{state.rms.toFixed(4)}</dd><dt>音频回送</dt><dd>{state.outputConnected?(config.muteOutput?'已静音（仍识别）':'已连接'):'未连接'}</dd><dt>AudioContext</dt><dd>{state.contextState}</dd><dt>发送采样数</dt><dd>{state.framesSent}</dd><dt>Epoch</dt><dd>{state.epoch}</dd></dl></details></main>;
+ <details className="diagnostics"><summary>音频诊断</summary><dl><dt>音频 RMS</dt><dd>{state.rms.toFixed(4)}</dd><dt>音频回送</dt><dd>{state.outputConnected?(config.muteOutput?'已静音（仍识别）':'已连接'):'未连接'}</dd><dt>AudioContext</dt><dd>{state.contextState}</dd><dt>发送采样数</dt><dd>{state.framesSent}</dd><dt>Epoch</dt><dd>{state.epoch}</dd></dl><button onClick={()=>void exportBrowserMetrics()}>导出识别时序 JSON</button><p className="muted">只包含采集、识别、渲染时间与会话编号，不包含音频或字幕文字。</p></details></main>;
 }
 createRoot(document.getElementById('root')!).render(<SidePanel/>);
