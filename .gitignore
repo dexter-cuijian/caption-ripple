@@ -5,6 +5,7 @@ dist/
 .runtime/
 .models/
 .work/
+.work
 .superpowers/
 __pycache__/
 .pytest_cache/
