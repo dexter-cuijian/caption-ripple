@@ -37,7 +37,7 @@ async function translateDraft(text:string,sourceLanguage:string,targetLanguage:s
  const requestId=crypto.randomUUID();const abort=()=>{void send('background','cancel-panel-translation',{requestId}).catch(()=>{});};signal?.addEventListener('abort',abort,{once:true});
  try{const response=await withDeadline(()=>send('background','panel-translate',{requestId,text:protectedTerms.text,sourceLanguage,targetLanguage}),3000,signal,abort);if(response?.ok){draftEngine='chrome-translator/panel';publish({translationContext:'panel'});return restoreTerms(response.text,protectedTerms);}}catch(error){if(signal?.aborted)throw error;}finally{signal?.removeEventListener('abort',abort);}
  }}
- if(config.recognitionEngine==='browser')throw new Error('Chrome 本地翻译不可用；浏览器模式不会连接本地服务。原文已保存。');
+ if(config.recognitionEngine!=='companion')throw new Error('Chrome 本地翻译不可用；浏览器模式不会连接本地服务。原文已保存。');
  try{const result=await local.translate(text,sourceLanguage,targetLanguage,signal);draftEngine='local-hy-mt2';publish({translationContext:'local',translationError:undefined,glossaryStatus:matches.length?'已由本机处理指定术语；未经人工核验':undefined});return result;}catch(error){if(matches.length)throw new Error(`术语保护未完成，保留原文名称；本机回退失败：${String(error)}`);throw error;}
 }
 const translations=new FinalTranslator({translate:translateDraft},translationCompleted,event=>{
@@ -82,8 +82,9 @@ function reset(reason:string){
  void send('background','epoch',{sessionId,epoch,previousEpoch,reason}).catch(()=>{});
 }
 function connectBrowser(){
- publish({phase:'connecting',message:'正在加载扩展内语音模型（首次可能需要较长时间）',asrEngine:'sherpa-onnx/wasm-zipformer-zh-en'});
- const worker=new Worker(chrome.runtime.getURL('asr-worker.js'));asrWorker=worker;
+ const sense=config.recognitionEngine==='browser-sensevoice';
+ publish({phase:'connecting',message:'正在加载扩展内语音模型（首次可能需要较长时间）',asrEngine:sense?'sherpa-onnx/wasm-sensevoice-small-int8':'sherpa-onnx/wasm-zipformer-zh-en'});
+ const worker=new Worker(chrome.runtime.getURL(sense?'sense-worker.js':'asr-worker.js'),sense?{type:'module'}:undefined);asrWorker=worker;
  worker.onmessage=({data})=>{
   if(asrWorker!==worker||!active)return;
   if(data.kind==='ready')worker.postMessage({kind:'reset',sessionId,epoch});
@@ -150,14 +151,14 @@ async function start(message:any){
   if(anchor===null)anchor=captureAnchor(Date.now(),1600,16_000);
   const packetAt=capturedAt(anchor,sampleStart+1600,16_000);
   const mediaTime=mediaTimeAt(video,packetAt);
-  if(config.recognitionEngine==='browser'){
+  if(config.recognitionEngine!=='companion'){
    if(browserOutstanding>=50){reset('扩展内识别积压超过 5 秒，重新同步');asrWorker?.terminate();asrWorker=undefined;connectBrowser();return;}
    browserOutstanding++;asrWorker?.postMessage({kind:'pcm',sessionId,epoch,pcm:data.pcm,capturedAt:packetAt,mediaTime},[data.pcm]);
   }
   else{socket!.send(JSON.stringify({type:'clock',sessionId,epoch,seq:seq++,capturedAt:packetAt,sampleStart,mediaTime,playbackRate:video?.playbackRate??1,paused:false}));socket!.send(data.pcm);}
   sampleStart+=1600;publish({framesSent:state.framesSent+1600});
  };
- stream.getAudioTracks()[0].onended=()=>{void stop();};active=true;publish({outputConnected:true});if(config.recognitionEngine==='browser')connectBrowser();else connect();
+ stream.getAudioTracks()[0].onended=()=>{void stop();};active=true;publish({outputConnected:true});if(config.recognitionEngine!=='companion')connectBrowser();else connect();
  }catch(error){await stop();throw error;}
 }
 chrome.runtime.onMessage.addListener((message,_sender,reply)=>{

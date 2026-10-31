@@ -11,8 +11,10 @@
     "test": "node --test server/test/*.test.mjs tests/*.test.mjs && npm run test:extension",
     "test:extension": "vitest run",
     "build": "node scripts/build.mjs",
+    "build:sensevoice": "CAPTION_SENSEVOICE=1 node scripts/build.mjs",
     "setup:model": "node scripts/download-model.mjs",
     "setup:browser-model": "node scripts/setup-browser-model.mjs",
+    "setup:sensevoice-model": "node scripts/setup-sensevoice-model.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
