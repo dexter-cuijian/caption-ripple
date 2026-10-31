@@ -4,6 +4,6 @@ Model: SenseVoiceSmall int8, converted by k2-fsa from Alibaba/FunASR SenseVoiceS
 
 Runtime: `@sherpaw/vad-asr@0.3.0`, Apache-2.0, https://github.com/sumimakito/sherpaw. The package's LICENSE is included as `RUNTIME_LICENSE.txt` in candidate builds.
 
-VAD: Silero VAD v5, upstream https://github.com/snakers4/silero-vad, MIT. The pinned ONNX release asset is linked from `sensevoice-model.lock.json`.
+VAD: Silero VAD v5, upstream https://github.com/snakers4/silero-vad, MIT. The complete MIT license is in `VAD_LICENSE.txt`. The pinned ONNX release asset is linked from `sensevoice-model.lock.json`.
 
 Candidate builds include model files, WASM and these notices. Browser inference does not send tab audio to the download hosts.
