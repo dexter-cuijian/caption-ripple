@@ -76,6 +76,7 @@ function receiveSubtitle(data:any){
 }
 
 function reset(reason:string){
+ browserMetrics.clearPending();
  pageCaptionMode=false;pageCaptionUntil=0;liveTranslations.reset(sessionId,epoch+1);
  latestSource=undefined;const previousEpoch=epoch;epoch++;revisions.reset(sessionId,epoch);translations.reset(sessionId,epoch);proofreader.reset(sessionId,epoch);seq=0;sampleStart=0;anchor=null;browserOutstanding=0;accepted=false;
  publish(retainCaptionOnReset(reason)?{message:reason}:{latestText:'',latestCaption:undefined,latestTranslation:'',translationError:undefined,latestTranslationRevision:0,latestDisplayText:'',message:reason});
