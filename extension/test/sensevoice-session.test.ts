@@ -50,7 +50,7 @@ test('forces a final at 10 seconds of continuous speech and starts a fresh VAD s
  for(let n=1;n<=100;n++)events.push(...session.accept(packet(),{capturedAt:n*100,mediaTime:n/10}));
  expect(events.map(event=>event.phase)).toEqual(['interim','final']);
  expect(events.at(-1)).toMatchObject({segmentId:'0',end:10,sourceText:'speech'});
- expect(lengths).toEqual([80000,160000]);expect(vad.resets).toBe(1);
+ expect(lengths).toEqual([40000,160000]);expect(vad.resets).toBe(1);
  events=[];for(let n=101;n<=200;n++)events.push(...session.accept(packet(),{capturedAt:n*100,mediaTime:n/10}));
  expect(events.at(-1)).toMatchObject({phase:'final',segmentId:'1',start:10,end:20});
  session.close();
@@ -70,7 +70,7 @@ test('does not decode or publish a forced caption for silence',()=>{
  for(let n=1;n<=100;n++)events.push(...session.accept(packet(0),{capturedAt:n*100,mediaTime:null}));
  expect(events).toEqual([]);expect(calls).toBe(0);expect(vad.resets).toBe(1);
  for(let n=101;n<=180;n++)events.push(...session.accept(packet(),{capturedAt:n*100,mediaTime:null}));
- expect(events.at(-1)).toMatchObject({phase:'interim',segmentId:'1',start:10,end:15});
+ expect(events.at(-1)).toMatchObject({phase:'interim',segmentId:'1',start:10,end:12.5});
  session.close();
 });
 test('forced finals consume consecutive audio windows without a gap or replay',()=>{
@@ -136,5 +136,33 @@ test('flushing a voiced tail keeps its last capture time, not the stop command t
  expect(session.flush({capturedAt:2000,mediaTime:1.2})).toMatchObject([
   {phase:'final',audioEndAt:1300}
  ]);
+ session.close();
+});
+
+test('publishes the first draft at 2.5 seconds without repeatedly decoding the growing utterance',()=>{
+ const lengths:number[]=[];
+ const session=new SenseVoiceSession(new FakeVad(),{decode:samples=>{lengths.push(samples.length);return 'words';},free(){}});
+ for(let n=1;n<25;n++)expect(session.accept(packet(),{capturedAt:n*100,mediaTime:n/10})).toEqual([]);
+ expect(session.accept(packet(),{capturedAt:2500,mediaTime:2.5})).toMatchObject([{phase:'interim',end:2.5}]);
+ for(let n=26;n<100;n++)session.accept(packet(),{capturedAt:n*100,mediaTime:n/10});
+ expect(lengths).toEqual([40000]);
+ session.close();
+});
+test('retries an empty early draft at the previous five-second boundary',()=>{
+ const lengths:number[]=[];
+ const session=new SenseVoiceSession(new FakeVad(),{decode:samples=>{lengths.push(samples.length);return samples.length===40000?'':'words';},free(){}});
+ for(let n=1;n<50;n++)expect(session.accept(packet(),{capturedAt:n*100,mediaTime:n/10})).toEqual([]);
+ expect(session.accept(packet(),{capturedAt:5000,mediaTime:5})).toMatchObject([{phase:'interim',end:5}]);
+ expect(lengths).toEqual([40000,80000]);
+ session.close();
+});
+test('only the first caption of an epoch uses the early draft window',()=>{
+ const lengths:number[]=[];
+ const session=new SenseVoiceSession(new FakeVad(),{decode:samples=>{lengths.push(samples.length);return 'words';},free(){}});
+ for(let n=1;n<=150;n++)session.accept(packet(),{capturedAt:n*100,mediaTime:n/10});
+ expect(lengths).toEqual([40000,160000,80000]);
+ session.reset();
+ for(let n=1;n<=25;n++)session.accept(packet(),{capturedAt:n*100,mediaTime:n/10});
+ expect(lengths.at(-1)).toBe(40000);
  session.close();
 });
