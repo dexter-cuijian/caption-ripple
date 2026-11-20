@@ -3,6 +3,7 @@ interface CaptionTiming {
 }
 const preferredReadingMs=3000;
 const minimumReadingMs=1500;
+const renderHeadroomMs=100;
 
 /** Keep the previous caption readable while budgeting for already late ASR output. */
 export function captionHoldDelay(previous:CaptionTiming|undefined,next:CaptionTiming,finalShownAt:number,now:number):number{
@@ -13,5 +14,5 @@ export function captionHoldDelay(previous:CaptionTiming|undefined,next:CaptionTi
  if(next.phase!=='interim'&&next.phase!=='final')return 0;
  const renderBudget=next.phase==='interim'?1500:3000;
  const readableUntil=finalShownAt+minimumReadingMs;
- return Math.min(remaining,Math.max(0,Math.max(readableUntil,next.audioEndAt+renderBudget)-now));
+ return Math.min(remaining,Math.max(0,Math.max(readableUntil,next.audioEndAt+renderBudget-renderHeadroomMs)-now));
 }
