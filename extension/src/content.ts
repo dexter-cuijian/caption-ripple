@@ -1,6 +1,6 @@
 import {subtitlePage,displaySource}from'./display';
 import {RevisionGate} from './core';
-import {PageCaptionRevisions} from './page-captions';
+import {PageCaptionRevisions,showingCaptionTrack,visibleCaptionText,visibleTrackCaption} from './page-captions';
 import {activeCue,type ImportedCue} from './subtitle-import';
 import {renderAndConfirm,overlayVisible,translationMatches} from './render';
 import {defaults,send,type Config,type VideoInfo} from './shared';
@@ -17,6 +17,7 @@ if(!(globalThis as any)[sentinel]){
  const gate=new RevisionGate();let config:Config=defaults,selected:HTMLVideoElement|undefined,enabled=false,sessionId='',epoch=0,frameId=0;
  const ids=new WeakMap<HTMLVideoElement,string>(),observed=new WeakSet<HTMLVideoElement>();
  let pageCaptionText='',pageCaptionAt=0,pendingCaptionText='',pageCaptionTimer:ReturnType<typeof setTimeout>|undefined;
+ let pageCaptionTrack:TextTrack|undefined;
  const pageCaptionRevisions=new PageCaptionRevisions();
  let importedCues:ImportedCue[]|undefined,importedVideoId='',importedCueIndex=-2;
  let lastUrl=location.href;let pending=false;let currentEvent:any;let displayedTranslationRevision=0,finalShownAt=0;
@@ -59,15 +60,12 @@ if(!(globalThis as any)[sentinel]){
   fullscreenButton.hidden=!selected||!!fullscreen;
  }
  fullscreenButton.onclick=async()=>{try{const parent=selected?.parentElement;if(!parent)throw new Error('找不到视频容器');await parent.requestFullscreen();}catch(error){void send('background','content-warning',{message:`全屏失败：${String(error)}`});}};
- function visiblePageCaption(){
+ function visiblePageCaption():{text:string;language?:string;track?:TextTrack}|null{
   if(!selected||selected.paused)return null;
-  for(const track of Array.from(selected.textTracks)){
-   const cues=Array.from(track.activeCues??[]);if(!cues.length)continue;
-   const text=cues.map(cue=>(cue as VTTCue).text??'').join(' ').replace(/<[^>]*>/g,'').replace(/\s+/g,' ').trim();
-   if(text)return{text,language:track.language||undefined};
-  }
+  const trackCaption=visibleTrackCaption(Array.from(selected.textTracks));
+  if(trackCaption)return trackCaption;
   if(location.hostname==='www.youtube.com'||location.hostname==='youtube.com'){
-   const text=Array.from(document.querySelectorAll('.ytp-caption-segment')).map(node=>node.textContent?.trim()??'').filter(Boolean).join(' ').replace(/\s+/g,' ').trim();
+   const text=visibleCaptionText(document.querySelectorAll('.ytp-caption-segment'));
    if(text)return{text,language:/[\u3400-\u9fff]/u.test(text)?'zh':'en'};
   }
   return null;
@@ -82,9 +80,9 @@ if(!(globalThis as any)[sentinel]){
   pageCaptionTimer=setTimeout(()=>{
    pendingCaptionText='';
    const stable=visiblePageCaption();if(!ownsPage()||!stable||stable.text!==caption.text||selected!==video||!enabled)return;
-   pageCaptionText=stable.text;pageCaptionAt=Date.now();
+   pageCaptionText=stable.text;pageCaptionAt=Date.now();pageCaptionTrack=stable.track;
    const identity=pageCaptionRevisions.observe(stable.text,pageCaptionAt);
-   void send('background','page-caption',{videoId:ids.get(video),caption:{...stable,text:identity.mergedText,mediaTime:video.currentTime,segmentId:identity.segmentId,revision:identity.revision}}).catch(()=>{});
+   void send('background','page-caption',{videoId:ids.get(video),caption:{language:stable.language,text:identity.mergedText,mediaTime:video.currentTime,segmentId:identity.segmentId,revision:identity.revision}}).catch(()=>{});
   },250);
  }
  function scan(){
@@ -94,6 +92,12 @@ if(!(globalThis as any)[sentinel]){
    observed.add(v);
    for(const event of ['pause','playing','seeking','seeked','ratechange','emptied'])v.addEventListener(event,()=>{if(ownsPage()&&selected===v){void send('background','video-event',{video:info(v),reason:event});captureImportedCue();}});
    v.addEventListener('timeupdate',()=>{if(ownsPage()&&selected===v)captureImportedCue();});
+   v.textTracks.addEventListener('change',()=>{
+    if(!ownsPage()||!enabled||!sessionId||importedCues||selected!==v||!pageCaptionTrack||showingCaptionTrack(pageCaptionTrack))return;
+    pageCaptionTrack=undefined;
+    if(Array.from(v.textTracks).some(showingCaptionTrack)||visiblePageCaption())return;
+    void send('background','page-caption-ended',{videoId:ids.get(v),sessionId,epoch}).catch(()=>{});
+   });
   }
   void send('background','videos',{videos:items.map(info).filter(v=>v.area>0)}).catch(()=>{});position();capturePageCaption();captureImportedCue();
  }
@@ -131,15 +135,15 @@ if(!(globalThis as any)[sentinel]){
   if(message.kind==='select'){
    if(message.sessionId&&(sessionId!==message.sessionId||epoch!==message.epoch)){sessionId=message.sessionId;epoch=message.epoch;gate.reset(sessionId,epoch);clearText();currentEvent=undefined;}
    frameId=message.frameId??0;config={...defaults,...message.config};
-   const next=[...document.querySelectorAll('video')].find(v=>ids.get(v)===message.id);if(next!==selected){pageCaptionText='';pageCaptionAt=0;pendingCaptionText='';pageCaptionRevisions.reset();clearTimeout(pageCaptionTimer);importedCueIndex=-2;}selected=next;
+   const next=[...document.querySelectorAll('video')].find(v=>ids.get(v)===message.id);if(next!==selected){pageCaptionText='';pageCaptionAt=0;pendingCaptionText='';pageCaptionTrack=undefined;pageCaptionRevisions.reset();clearTimeout(pageCaptionTimer);importedCueIndex=-2;}selected=next;
    // Only the selected frame renders; top frame is the audio-only/cross-origin fallback.
    enabled=!!selected||(!message.id&&window===window.top);position();capturePageCaption();
   }
   if(message.kind==='import-subtitles'){importedCues=message.cues;importedVideoId=message.videoId;importedCueIndex=-2;captureImportedCue();}
   if(message.kind==='clear-import'){importedCues=undefined;importedVideoId='';importedCueIndex=-2;clearText();position();}
   if(message.kind==='clear-import-cue'){clearText();position();}
-  if(message.kind==='epoch'){const keep=retainCaptionOnReset(message.reason);if(keep&&pendingEvent)flushPending();sessionId=message.sessionId;epoch=message.epoch;gate.reset(sessionId,epoch);pageCaptionText='';pageCaptionAt=0;pendingCaptionText='';pageCaptionRevisions.reset();clearTimeout(pageCaptionTimer);if(!keep){clearText();currentEvent=undefined;}position();}
-  if(message.kind==='clear'){enabled=false;sessionId='';importedCues=undefined;importedVideoId='';importedCueIndex=-2;clearTimeout(pageCaptionTimer);pageCaptionText='';pendingCaptionText='';pageCaptionRevisions.reset();clearText();host.remove();}
+  if(message.kind==='epoch'){const keep=retainCaptionOnReset(message.reason);if(keep&&pendingEvent)flushPending();sessionId=message.sessionId;epoch=message.epoch;gate.reset(sessionId,epoch);pageCaptionText='';pageCaptionAt=0;pendingCaptionText='';pageCaptionTrack=undefined;pageCaptionRevisions.reset();clearTimeout(pageCaptionTimer);if(!keep){clearText();currentEvent=undefined;}position();}
+  if(message.kind==='clear'){enabled=false;sessionId='';importedCues=undefined;importedVideoId='';importedCueIndex=-2;clearTimeout(pageCaptionTimer);pageCaptionText='';pendingCaptionText='';pageCaptionTrack=undefined;pageCaptionRevisions.reset();clearText();host.remove();}
   if(message.kind==='subtitle'&&enabled&&(message.event.engine==='subtitle-import'||gate.accept(message.event))){
    const event=message.event,now=Date.now(),samePending=!!pendingEvent&&sameCaption(pendingEvent,event);
    const finalTranslation=samePending?pendingFinalTranslation:undefined;

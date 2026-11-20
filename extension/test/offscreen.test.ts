@@ -69,6 +69,21 @@ test('browser recognition resumes after webpage captions disappear',async()=>{
  expect(workers[0].messages.some((message:any)=>message.kind==='pcm'&&message.epoch===1)).toBe(true);
  await command('stop');vi.restoreAllMocks();
 });
+test('selected caption-track shutdown resumes browser ASR without waiting for expiry',async()=>{
+ await start(undefined,{config:{recognitionEngine:'browser-sensevoice'}});
+ const worker=workers[0];
+ worker.onmessage({data:{kind:'ready'}});
+ worker.onmessage({data:{kind:'reset-done',sessionId:'session',epoch:0}});
+ await command('page-caption',{caption:{text:'Visible caption.',language:'en',mediaTime:1,segmentId:'page-1'}});
+ await command('page-caption-ended',{sessionId:'session',epoch:2});packet();
+ expect(worker.messages).not.toContainEqual(expect.objectContaining({kind:'reset',epoch:1}));
+ await command('page-caption-ended',{sessionId:'session',epoch:0});packet();
+ expect(worker.messages).toContainEqual(expect.objectContaining({kind:'reset',epoch:1}));
+ worker.onmessage({data:{kind:'reset-done',sessionId:'session',epoch:1}});
+ packet();
+ expect(worker.messages).toContainEqual(expect.objectContaining({kind:'pcm',epoch:1}));
+ await command('stop');
+});
 test('same offscreen document Stop then Start creates fresh packet counters and wall anchor',async()=>{
  vi.spyOn(Date,'now').mockReturnValue(100000);
  await start();sockets[0].open();packet();const first=JSON.parse(sockets[0].sent[1]);expect(first.seq).toBe(0);

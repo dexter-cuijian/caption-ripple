@@ -1,3 +1,22 @@
+export const showingCaptionTrack=(track:TextTrack)=>track.mode==='showing'&&['subtitles','captions'].includes(track.kind);
+
+export function visibleTrackCaption(tracks:Iterable<TextTrack>){
+ for(const track of tracks){
+  if(!showingCaptionTrack(track))continue;
+  const cues=Array.from(track.activeCues??[]);
+  const text=cues.map(cue=>(cue as VTTCue).text??'').join(' ').replace(/<[^>]*>/g,'').replace(/\s+/g,' ').trim();
+  if(text)return {text,language:track.language||undefined,track};
+ }
+ return null;
+}
+
+export function visibleCaptionText(nodes:Iterable<Element>):string{
+ return Array.from(nodes)
+  .filter(node=>node.checkVisibility({checkOpacity:true,checkVisibilityCSS:true}))
+  .map(node=>node.textContent?.trim()??'')
+  .filter(Boolean).join(' ').replace(/\s+/g,' ').trim();
+}
+
 /** YouTube's live captions often extend the same line one word at a time. */
 export class PageCaptionRevisions {
  private text='';private merged='';private changedAt=0;private startedAt=0;private serial=0;private revision=0;

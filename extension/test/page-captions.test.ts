@@ -1,5 +1,14 @@
 import {expect,test} from 'vitest';
-import {PageCaptionRevisions} from '../src/page-captions';
+import {PageCaptionRevisions,visibleTrackCaption} from '../src/page-captions';
+
+test('a player hiding a caption track stops supplying webpage captions even with active cues',()=>{
+ const track={mode:'showing',kind:'subtitles',language:'en',activeCues:[{text:'A visible <i>subtitle</i>'}]} as unknown as TextTrack;
+ expect(visibleTrackCaption([track])).toEqual({text:'A visible subtitle',language:'en',track});
+ track.mode='hidden';
+ expect(visibleTrackCaption([track])).toBeNull();
+ track.mode='disabled';
+ expect(visibleTrackCaption([track])).toBeNull();
+});
 
 test('progressively revealed caption updates one history segment',()=>{
  const captions=new PageCaptionRevisions();

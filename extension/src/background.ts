@@ -164,6 +164,7 @@ chrome.runtime.onMessage.addListener((message,sender,reply)=>{
   if(message.kind==='select-video'){manual=true;selected=message.id;await choose();}
   if(message.kind==='video-event'&&sender.tab?.id===state.tabId&&selected===`${sender.frameId}:${message.video.id}`){state.video={...message.video,frameId:sender.frameId};if(imported&&imported.mediaUrl&&message.video.mediaUrl&&imported.mediaUrl!==message.video.mediaUrl){await clearImport();state.phase='idle';state.message='视频来源已切换，请重新导入字幕';await broadcast('clear-import');}await send('offscreen','video',{video:state.video,reset:captureResetReason(message.reason)});}
   if(message.kind==='page-caption'&&!imported&&sender.tab?.id===state.tabId&&selected===`${sender.frameId}:${message.videoId}`&&state.phase!=='idle')await send('offscreen','page-caption',{caption:message.caption});
+  if(message.kind==='page-caption-ended'&&!imported&&sender.tab?.id===state.tabId&&selected===`${sender.frameId}:${message.videoId}`&&state.phase!=='idle')await send('offscreen','page-caption-ended',{sessionId:message.sessionId,epoch:message.epoch});
   if(message.kind==='import-cue'&&imported&&sender.tab?.id===state.tabId&&state.sessionId&&state.video?.id===imported.videoId&&sender.frameId===state.video.frameId&&message.videoId===imported.videoId){
    if(message.index<0){await broadcast('clear-import-cue');state.latestText='';state.latestDisplayText='';state.latestTranslation='';return state;}
    const cue=imported.cues[message.index];if(!cue)return state;

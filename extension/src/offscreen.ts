@@ -201,6 +201,10 @@ async function start(message:any){
 chrome.runtime.onMessage.addListener((message,_sender,reply)=>{
  if(message.target!=='offscreen')return;
  (async()=>{
+  if(message.kind==='page-caption-ended'){
+   if(active&&pageCaptionMode&&message.sessionId===sessionId&&message.epoch===epoch)pageCaptionUntil=0;
+   return{ok:true};
+  }
   if(message.kind==='page-caption'){
    if(!active||!message.caption?.text)return{ok:false};
    if(!pageCaptionMode)publish({phase:'running',message:'正在使用网页字幕'});
