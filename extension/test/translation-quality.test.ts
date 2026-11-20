@@ -19,3 +19,12 @@ test('does not return a confirmed Korean absence as positive attendance',async()
 test('a punctuation-only result never replaces readable source text',async()=>{
  await expect(translateChecked('有。','en','zh',async()=> '。。')).rejects.toThrow('仅包含标点');
 });
+
+test('canonicalizes mixed Korean counts before Chinese translation',async()=>{
+ const raw='백16명의 선수 중 3십6명이 기록을 냈고, 이십4위를 차지했다.';
+ const translate=vi.fn(async(input:string)=>input);
+ await expect(translateChecked(raw,'ko','zh',translate)).resolves.toBe('116명의 선수 중 36명이 기록을 냈고, 24위를 차지했다.');
+ await expect(translateChecked('시료는 5십육가지다. 12십명이 아니다. 이미 36명과 삼십육명이 있었다.','ko','zh',translate))
+  .resolves.toBe('시료는 56가지다. 12십명이 아니다. 이미 36명과 삼십육명이 있었다.');
+ await expect(translateChecked(raw,'ko','en',translate)).resolves.toBe(raw);
+});
