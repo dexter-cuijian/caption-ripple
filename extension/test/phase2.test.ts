@@ -132,3 +132,14 @@ test('does not attach a standalone spoken acknowledgment to the previous unfinis
  await vi.waitFor(()=>expect(events).toHaveLength(2));
  expect(calls).toEqual(['She cares for a family of.','Yeah.']);
 });
+
+test('keeps the original pair when the translator moves almost all text across the marker',async()=>{
+ const events:any[]=[];
+ const translator=new FinalTranslator({translate:async(text)=>text.includes('ZXQ8ZXQ')?'由于 ZXQ8ZXQ 她收到男女群体的大量积极评论和鼓励，并得出了这个结论。':'原来完整的译文'},e=>events.push(e),()=>{});
+ translator.reset('context',2);
+ const prior={phase:'final',sessionId:'context',epoch:2,segmentId:'4',revision:1,sourceLanguage:'en',sourceText:'She came to this conclusion due to comments and encouragement sent to her by.',start:0,end:10,engine:'sherpa-onnx/wasm-sensevoice-small-int8',splitReason:'max-duration'};
+ translator.enqueue(prior,'zh');
+ translator.enqueue({...prior,segmentId:'5',sourceText:'Both female and male individuals.',start:10,end:12,splitReason:undefined},'zh');
+ await vi.waitFor(()=>expect(events.some(e=>e.segmentId==='5')).toBe(true));
+ expect(events.map(e=>[e.translationRevision,e.text])).toEqual([[1,'原来完整的译文'],[1,'原来完整的译文']]);
+});

@@ -41,7 +41,7 @@ export class FinalTranslator{
      if(context&&current(context.previous)){
       const repaired=await withDeadline(async active=>{
        const text=await this.provider.translate(context.input,task.sourceLanguage,task.targetLanguage,active);
-       return splitContextTranslation(text);
+       return splitContextTranslation(text,context.input);
       },500,signal).catch(()=>undefined);
       if(!current(task))continue;
       if(repaired&&current(context.previous)){

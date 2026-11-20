@@ -17,8 +17,15 @@ export function continuationInput(previous:ContextSpan,current:ContextSpan):stri
  return `${left.replace(/\.$/u,'')} ${marker} ${right}`;
 }
 
-export function splitContextTranslation(text:string):[string,string]|undefined{
+const textUnits=(text:string)=>[...text.matchAll(/[\p{L}\p{N}]/gu)].length;
+
+export function splitContextTranslation(text:string,input:string):[string,string]|undefined{
  const parts=text.split(marker).map(part=>part.trim());
- if(parts.length!==2||parts.some(part=>!/[\p{L}\p{N}]/u.test(part)))return;
+ if(parts.length!==2)return;
+ const source=input.split(marker).map(textUnits),target=parts.map(textUnits);
+ if(source.length!==2||source.some(count=>!count)||target.some(count=>!count))return;
+ const sourceTotal=source[0]+source[1],targetTotal=target[0]+target[1];
+ // A preserved marker does not guarantee alignment when the target language reorders a clause.
+ if(target.some((count,index)=>count/targetTotal<(source[index]/sourceTotal)/2))return;
  return [parts[0],parts[1]];
 }
