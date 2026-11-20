@@ -199,3 +199,20 @@ test('audio-only SPA navigation updates scoped terms/hotwords and cancels old tr
  sockets[0].onmessage({data:JSON.stringify({type:'reset',sessionId:'session',epoch:1})});sockets[0].onmessage({data:JSON.stringify({type:'subtitle',phase:'final',sessionId:'session',epoch:1,segmentId:'2',revision:1,sourceText:'蓝营',sourceLanguage:'zh'})});late('old late text');await new Promise(resolve=>setTimeout(resolve,0));
  const sources=runtimeMessages.filter(message=>message.kind==='subtitle');expect(sources.at(-1).event.matchedTerms).toEqual([]);expect(runtimeMessages.filter(message=>message.kind==='translation').every(message=>message.event.epoch===1)).toBe(true);await command('stop');
 });
+test('a seek during model loading waits for readiness before sending captured PCM',async()=>{
+ const video={currentTime:5,observedAt:Date.now(),playbackRate:1,paused:false};
+ await start(video,{config:{recognitionEngine:'browser-sensevoice'}});
+ const worker=workers[0];
+
+ await command('video',{video,reset:'seek'});
+ worker.onmessage({data:{kind:'reset-done',sessionId:'session',epoch:1}});
+ packet();
+ expect(worker.messages).toEqual([]);
+
+ worker.onmessage({data:{kind:'ready'}});
+ expect(worker.messages).toContainEqual({kind:'reset',sessionId:'session',epoch:1,sourceLanguage:'auto'});
+ worker.onmessage({data:{kind:'reset-done',sessionId:'session',epoch:1}});
+ packet();
+ expect(worker.messages.at(-1)).toMatchObject({kind:'pcm',sessionId:'session',epoch:1});
+ await command('stop');
+});

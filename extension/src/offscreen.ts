@@ -11,6 +11,7 @@ import {BrowserMetrics} from './browser-metrics';
 import {defaults, initialState,send, type Config,type VideoInfo} from './shared';
 let context:AudioContext|undefined,stream:MediaStream|undefined,source:MediaStreamAudioSourceNode|undefined,worklet:AudioWorkletNode|undefined,silent:GainNode|undefined,playback:GainNode|undefined;
 let socket:WebSocket|undefined,asrWorker:Worker|undefined,retry:ReturnType<typeof setTimeout>|undefined,active=false,accepted=false,attempt=0;
+let browserReady=false;
 let stopping:Promise<void>|undefined;
 let sessionId='',epoch=0,seq=0,sampleStart=0,anchor:number|null=null,browserOutstanding=0;
 const pendingSourceWrites=new Set<Promise<void>>();
@@ -84,17 +85,21 @@ function reset(reason:string){
  latestSource=undefined;const previousEpoch=epoch;epoch++;revisions.reset(sessionId,epoch);translations.reset(sessionId,epoch);proofreader.reset(sessionId,epoch);seq=0;sampleStart=0;anchor=null;browserOutstanding=0;accepted=false;
  publish(retainCaptionOnReset(reason)?{message:reason}:{latestText:'',latestCaption:undefined,latestTranslation:'',translationError:undefined,latestTranslationRevision:0,latestDisplayText:'',message:reason});
  if(socket?.readyState===WebSocket.OPEN)socket.send(JSON.stringify({type:'reset',sessionId,epoch,mediaTime:video?.currentTime??null,sourceLanguage:config.sourceLanguage,hotwords:hotwordsFor(glossary.entries,config.sourceLanguage,scopeUrl()),reason}));
- asrWorker?.postMessage({kind:'reset',sessionId,epoch,sourceLanguage:config.sourceLanguage});
+ if(browserReady)asrWorker?.postMessage({kind:'reset',sessionId,epoch,sourceLanguage:config.sourceLanguage});
  void send('background','epoch',{sessionId,epoch,previousEpoch,reason}).catch(()=>{});
 }
 function connectBrowser(){
+ browserReady=false;
  const sense=config.recognitionEngine==='browser-sensevoice';
  publish({phase:'connecting',message:'正在加载扩展内语音模型（首次可能需要较长时间）',asrEngine:sense?'sherpa-onnx/wasm-sensevoice-small-int8':'sherpa-onnx/wasm-zipformer-zh-en'});
  const worker=new Worker(chrome.runtime.getURL(sense?'sense-worker.js':'asr-worker.js'),sense?{type:'module'}:undefined);asrWorker=worker;
  worker.onmessage=({data})=>{
   if(asrWorker!==worker||!active)return;
-  if(data.kind==='ready')worker.postMessage({kind:'reset',sessionId,epoch,sourceLanguage:config.sourceLanguage});
-  if(data.kind==='reset-done'&&data.sessionId===sessionId&&data.epoch===epoch){accepted=true;publish({phase:'running',message:'正在使用扩展内语音识别'});}
+  if(data.kind==='ready'){
+   browserReady=true;
+   worker.postMessage({kind:'reset',sessionId,epoch,sourceLanguage:config.sourceLanguage});
+  }
+  if(data.kind==='reset-done'&&browserReady&&data.sessionId===sessionId&&data.epoch===epoch){accepted=true;publish({phase:'running',message:'正在使用扩展内语音识别'});}
   if(data.kind==='processed'&&data.sessionId===sessionId&&data.epoch===epoch)browserOutstanding=Math.max(0,browserOutstanding-1);
   if(data.kind==='loading')publish({message:data.message});
   if(data.kind==='subtitle'&&!pageCaptionMode&&data.event?.sessionId===sessionId&&data.event?.epoch===epoch)receiveSubtitle(data.event);
@@ -147,7 +152,7 @@ async function performStop(){
  browserMetrics.clearPending();
  pageCaptionMode=false;pageCaptionUntil=0;browserOutstanding=0;
  latestSource=undefined;active=false;accepted=false;clearTimeout(retry);translations.reset('',-1);liveTranslations.reset('',-1);proofreader.reset('',-1);
- if(socket?.readyState===WebSocket.OPEN)socket.send(JSON.stringify({type:'stop',sessionId,epoch}));socket?.close();socket=undefined;asrWorker?.terminate();asrWorker=undefined;
+ if(socket?.readyState===WebSocket.OPEN)socket.send(JSON.stringify({type:'stop',sessionId,epoch}));socket?.close();socket=undefined;asrWorker?.terminate();asrWorker=undefined;browserReady=false;
  if(worklet)worklet.port.onmessage=null;
  for(const node of [worklet,source,silent,playback])try{node?.disconnect();}catch{}
  stream?.getTracks().forEach(t=>t.stop());playback=undefined;
