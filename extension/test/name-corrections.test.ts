@@ -43,9 +43,10 @@ test('video-scoped place aliases repair ASR while preserving raw text and other 
 });
 
 test('English place aliases respect word boundaries',()=>{
- const entry={id:'place-en',source:'Xinzhuang',target:'新莊',sourceLang:'en',targetLang:'zh',scope:'global',asrAliases:['sin zhuang']} as const;
- expect(correctRecognizedNames({sourceText:'SIN ZHUANG and sin zhuang',sourceLanguage:'en'},[entry as any]).sourceText).toBe('Xinzhuang and Xinzhuang');
- expect(correctRecognizedNames({sourceText:'within sin zhuangese',sourceLanguage:'en'},[entry as any]).sourceText).toBe('within sin zhuangese');
+ const entry={id:'place-en',source:'Xinzhuang',target:'新莊',sourceLang:'en',targetLang:'zh',scope:'global' as const,asrAliases:['sin zhuang','(sin zhuang)']};
+ expect(correctRecognizedNames({sourceText:'SIN ZHUANG and sin zhuang',sourceLanguage:'en'},[entry]).sourceText).toBe('Xinzhuang and Xinzhuang');
+ expect(correctRecognizedNames({sourceText:'within sin zhuangese',sourceLanguage:'en'},[entry]).sourceText).toBe('within sin zhuangese');
+ expect(correctRecognizedNames({sourceText:'old(sin zhuang)',sourceLanguage:'en'},[entry]).sourceText).toBe('old(Xinzhuang)');
 });
 
 test('export uses the corrected subtitle and keeps raw ASR separately',()=>{

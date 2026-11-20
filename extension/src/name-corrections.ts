@@ -36,9 +36,11 @@ export function correctRecognizedNames<T extends {sourceText:string;sourceLangua
  if(aliases.size){
   const escape=(value:string)=>value.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
   const alternatives=[...aliases.keys()].sort((a,b)=>b.length-a.length).map(escape).join('|');
-  const pattern=new RegExp(`(?:${alternatives})`,language==='en'?'giu':'gu');
-  corrected=corrected.replace(pattern,(value,offset:number,input:string)=>
-   termBoundary(input,offset,offset+value.length,language)?aliases.get(language==='en'?value.toLocaleLowerCase():value)!:value);
+  const pattern=new RegExp(language==='en'?`(?<![\\p{L}\\p{N}])(?:${alternatives})(?![\\p{L}\\p{N}])`:alternatives,language==='en'?'giu':'gu');
+  corrected=corrected.replace(pattern,(value,offset:number,input:string)=>{
+   if(language==='ko'&&!termBoundary(input,offset,offset+value.length,language))return value;
+   return aliases.get(language==='en'?value.toLocaleLowerCase():value)!;
+  });
  }
  if(language==='ko'&&event.phase==='final')corrected=correctKoreanContext(corrected);
  return{...event,sourceRaw:raw,sourceText:corrected};
