@@ -47,3 +47,25 @@ test('export uses the corrected subtitle and keeps raw ASR separately',()=>{
  expect(exportCaptions([row] as any,'txt')).not.toContain('讲万安发言');
  expect(row.sourceRaw).toBe('讲万安发言');
 });
+
+test('repairs verified Korean homophones only in matching finalized contexts',()=>{
+ const examples=[
+  ['영화 이하로 내려가는 날은 드물지만 실제 온도보다 더 춥게 느껴진다.','영하 이하로 내려가는 날은 드물지만 실제 온도보다 더 춥게 느껴진다.'],
+  ['모든 주에서 만장일지의 동의를 얻어야만.','모든 주에서 만장일치의 동의를 얻어야만.'],
+  ['발라파고스의1차 방목 동물인 거대 거북이','갈라파고스의1차 방목 동물인 거대 거북이']
+ ];
+ for(const [sourceText,expected] of examples)expect(correctRecognizedNames({sourceText,sourceLanguage:'ko',phase:'final'})).toMatchObject({sourceRaw:sourceText,sourceText:expected});
+ for(const sourceText of ['영화 이하의 영상은 제외한다.','만장일지의 제목을 읽는다.','발라파고스 팀이 이겼다.']){
+  expect(correctRecognizedNames({sourceText,sourceLanguage:'ko',phase:'final'}).sourceText).toBe(sourceText);
+ }
+ expect(correctRecognizedNames({sourceText:examples[0][0],sourceLanguage:'ko',phase:'interim'}).sourceText).toBe(examples[0][0]);
+});
+
+test('a scoped Korean place alias preserves its attached particle and whole-word boundaries',()=>{
+ const url='https://example.test/news';
+ const entry={id:'place',source:'갈라파고스',target:'加拉帕戈斯',sourceLang:'ko',targetLang:'zh',scope:'video' as const,videoUrl:url,asrAliases:['발라파고스']};
+ const heard='발라파고스에서 오늘 새로운 조사 소식이 나왔다.';
+ expect(correctRecognizedNames({sourceText:heard,sourceLanguage:'ko'},[entry],url).sourceText).toBe('갈라파고스에서 오늘 새로운 조사 소식이 나왔다.');
+ expect(correctRecognizedNames({sourceText:heard,sourceLanguage:'ko'},[entry],'https://example.test/other').sourceText).toBe(heard);
+ expect(correctRecognizedNames({sourceText:'가짜발라파고스 발라파고스팀',sourceLanguage:'ko'},[entry],url).sourceText).toBe('가짜발라파고스 발라파고스팀');
+});

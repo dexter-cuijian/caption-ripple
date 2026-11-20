@@ -40,3 +40,12 @@ test('fixed names Ann and Anna are counted as distinct complete terms rather tha
  expect(termsConsistent('Ann and Anna',matches)).toBe(true);expect(termsConsistent('Anna and Anna',matches)).toBe(false);
  const plan=protectTerms('安和安娜',matches,'ABCDEF01');expect(restoreTerms(plan.text.replace('和',' and '),plan)).toBe('Ann and Anna');
 });
+
+test('imports Asian source terms and matches a Korean name before its case particle',()=>{
+ const parsed=validateGlossary([
+  {...entry('갈라파고스','加拉帕戈斯'),sourceLang:'ko',targetLang:'zh'},
+  {...entry('本州列島','本州列岛'),sourceLang:'ja',targetLang:'zh'}
+ ]);
+ expect(matchGlossary('갈라파고스에서 갈라파고스팀',parsed,'ko','zh','').map(m=>m.sourceText)).toEqual(['갈라파고스']);
+ expect(matchGlossary('本州列島では',parsed,'ja','zh','').map(m=>m.sourceText)).toEqual(['本州列島']);
+});

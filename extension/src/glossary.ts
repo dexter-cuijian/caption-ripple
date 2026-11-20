@@ -6,17 +6,25 @@ const sameVideo=(a:string,b:string)=>{try{const left=new URL(a),right=new URL(b)
 export const inScope=(entry:GlossaryEntry,url:string)=>entry.scope==='global'||!!entry.videoUrl&&sameVideo(entry.videoUrl,url);
 export function validateGlossary(value:unknown):GlossaryEntry[]{
  if(!Array.isArray(value)||value.length>500)throw new Error('术语 JSON 必须是最多500条的数组');const ids=new Set<string>();
- return value.map((raw:any)=>{if(!raw||typeof raw.source!=='string'||!raw.source.trim()||Array.from(raw.source).length>128||typeof raw.target!=='string'||!raw.target.trim()||Array.from(raw.target).length>160||!['zh','en'].includes(raw.sourceLang)||!['zh','en'].includes(raw.targetLang)||!['global','video'].includes(raw.scope))throw new Error('术语必须含有效source/target/sourceLang/targetLang/scope');
+ return value.map((raw:any)=>{if(!raw||typeof raw.source!=='string'||!raw.source.trim()||Array.from(raw.source).length>128||typeof raw.target!=='string'||!raw.target.trim()||Array.from(raw.target).length>160||!['zh','en','ko','ja'].includes(raw.sourceLang)||!['zh','en'].includes(raw.targetLang)||!['global','video'].includes(raw.scope))throw new Error('术语必须含有效source/target/sourceLang/targetLang/scope');
  if(raw.scope==='video'&&(typeof raw.videoUrl!=='string'||!/^https?:\/\//.test(raw.videoUrl)))throw new Error('当前视频范围必须指定HTTP(S) videoUrl');
  if(raw.reference&&!(typeof raw.reference==='string'&&/^https?:\/\//.test(raw.reference)))throw new Error('参考来源必须为HTTP(S)链接');let id=typeof raw.id==='string'&&raw.id&&!ids.has(raw.id)?raw.id:crypto.randomUUID();ids.add(id);
  if(raw.asrAliases!==undefined&&(!Array.isArray(raw.asrAliases)||raw.asrAliases.length>8||raw.asrAliases.some((alias:unknown)=>typeof alias!=='string'||!alias.trim()||Array.from(alias).length>64)))throw new Error('常见误听写法最多8条，每条不超过64字');
  const asrAliases:string[]|undefined=(raw.asrAliases as string[]|undefined)?.map(alias=>alias.trim()).filter(alias=>alias!==raw.source.trim());
  return{id,source:raw.source.trim(),target:raw.target.trim(),sourceLang:raw.sourceLang,targetLang:raw.targetLang,scope:raw.scope,...(raw.scope==='video'?{videoUrl:raw.videoUrl}:{}),...(raw.reference?{reference:raw.reference}:{}),...(asrAliases?.length?{asrAliases:[...new Set(asrAliases)]}:{})};});
 }
+const termCharacter=/[\p{L}\p{N}]/u;
+const koreanParticle=/^(?:으로부터|에서부터|에게서|에서는|에서도|으로는|에서|에게|한테|부터|까지|처럼|보다|으로|에|은|는|이|가|을|를|와|과|의|도|만|로)(?![\p{L}\p{N}])/u;
+export function termBoundary(text:string,start:number,end:number,language:string){
+ if(language!=='en'&&language!=='ko')return true;
+ if(termCharacter.test(text[start])&&termCharacter.test(text[start-1]??''))return false;
+ if(!termCharacter.test(text[end-1])||!termCharacter.test(text[end]??''))return true;
+ return language==='ko'&&koreanParticle.test(text.slice(end));
+}
 export function matchGlossary(text:string,entries:GlossaryEntry[],source:string,target:string,url:string):TermMatch[]{
  const candidates=entries.filter(entry=>entry.sourceLang===source&&entry.targetLang===target&&inScope(entry,url)).sort((a,b)=>b.source.length-a.source.length||Number(b.scope==='video')-Number(a.scope==='video'));
  const matches:TermMatch[]=[];const lower=text.toLocaleLowerCase();let cursor=0;
- while(cursor<text.length){const entry=candidates.find(entry=>{if(!lower.startsWith(entry.source.toLocaleLowerCase(),cursor))return false;if(entry.sourceLang==='en'){const word=/[\p{L}\p{N}]/u;if(word.test(entry.source[0])&&word.test(text[cursor-1]??''))return false;if(word.test(entry.source.at(-1)!)&&word.test(text[cursor+entry.source.length]??''))return false;}return true;});
+ while(cursor<text.length){const entry=candidates.find(entry=>{if(!lower.startsWith(entry.source.toLocaleLowerCase(),cursor))return false;return termBoundary(text,cursor,cursor+entry.source.length,entry.sourceLang);});
  if(entry){matches.push({start:cursor,end:cursor+entry.source.length,sourceText:text.slice(cursor,cursor+entry.source.length),entry});cursor+=entry.source.length;}else cursor++;}
  return matches;
 }
