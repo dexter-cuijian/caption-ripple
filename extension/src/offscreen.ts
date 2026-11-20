@@ -3,6 +3,7 @@ import{NativeTranslationProvider,LocalModelTranslationProvider,ContextProofreade
 import{displaySource,subtitlePage}from'./display';
 import{correctRecognizedNames}from'./name-corrections';
 import {translationMatches}from'./render';
+import {translateChecked} from './translation-quality';
 import {FinalTranslator,LiveTranslator,translatorAPI,type NativeTranslator} from './translation';
 import {RevisionGate,terminalClose} from './core';
 import {retainCaptionOnReset} from './media';
@@ -31,7 +32,11 @@ function translationCompleted(event:import('./history').TranslationEvent){
  void send('background','translation',{event:{...event,engine:event.engine??draftEngine}}).then(response=>{if(response?.error)throw new Error(response.error);}).catch(error=>publish({translationError:String(error)}));
 }
 const proofreader=new ContextProofreader(localProvider,event=>{publish({proofreadingStatus:'revised',proofreadingError:undefined});translationCompleted(event);},event=>{publish({proofreadingStatus:event.proofreadingState,proofreadingError:event.error});void send('background','proofreading-failed',{event}).catch(()=>{});});
-async function translateDraft(text:string,sourceLanguage:string,targetLanguage:string,signal?:AbortSignal,override?:{entries:GlossaryEntry[];url:string}){
+type TranslationScope={entries:GlossaryEntry[];url:string};
+function translateDraft(text:string,sourceLanguage:string,targetLanguage:string,signal?:AbortSignal,override?:TranslationScope){
+ return translateChecked(text,sourceLanguage,targetLanguage,input=>translatePrepared(input,sourceLanguage,targetLanguage,signal,override));
+}
+async function translatePrepared(text:string,sourceLanguage:string,targetLanguage:string,signal?:AbortSignal,override?:TranslationScope){
  const matches=override?matchGlossary(text,override.entries,sourceLanguage,targetLanguage,override.url):matched(text,sourceLanguage,targetLanguage);const protectedTerms=protectTerms(text,matches);
  const local=override?new LocalModelTranslationProvider(()=>token,fetch,(raw,source,target)=>matchGlossary(raw,override.entries,source,target,override.url)):localProvider;
  if(config.translationEngine==='off')throw new Error('翻译已关闭；原文保存在历史中');
