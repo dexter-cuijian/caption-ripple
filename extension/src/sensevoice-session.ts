@@ -1,9 +1,10 @@
 import type {AsrClock,AsrEvent} from './browser-asr';
 import {normalizeChineseNumerals} from './chinese-numerals';
+import type {DecodedFinal} from './sensevoice-punctuation';
 
 export interface VoiceSegment{start:number;samples:Float32Array}
 export interface VoiceDetector{acceptWaveform(samples:Float32Array):void;isEmpty():boolean;front():VoiceSegment;pop():void;reset():void;flush():void;free():void}
-export interface OfflineDecoder{decode(samples:Float32Array):string;free():void}
+export interface OfflineDecoder{decode(samples:Float32Array):string;decodeFinal?(samples:Float32Array):DecodedFinal;free():void}
 const detectedLanguage=(text:string)=>/[\uac00-\ud7af\u1100-\u11ff]/u.test(text)?'ko':/[\u3040-\u30ff]/u.test(text)?'ja':/[\u3400-\u9fff]/u.test(text)?'zh':'en';
 const meaningful=(text:string)=>/[\p{L}\p{N}]/u.test(text);
 const minVoiceRms=.0003;
@@ -19,26 +20,30 @@ export class SenseVoiceSession{
  private readonly window=new Float32Array(finalSamples);
  private windowSamples=0;private windowPower=0;private draftAttempts=0;private hasCaption=false;private closed=false;
  constructor(private vad:VoiceDetector,private recognizer:OfflineDecoder,private sourceLanguage='auto'){}
- private event(phase:'interim'|'final',text:string,startSample:number,endSample:number,clock:AsrClock):AsrEvent{
+ private event(phase:'interim'|'final',text:string,startSample:number,endSample:number,clock:AsrClock,sourceRaw?:string):AsrEvent{
   if(this.sourceLanguage==='zh'||this.sourceLanguage==='yue')text=normalizeChineseNumerals(text);
   this.revision++;this.last=text;this.hasCaption=true;
   const packetEndAt=this.packetEndAt??clock.capturedAt;
-  return{phase,segmentId:String(this.segment),revision:this.revision,sourceText:text,sourceLanguage:this.sourceLanguage==='auto'?detectedLanguage(text):this.sourceLanguage,start:Math.max(0,startSample/16000),end:Math.max(0,endSample/16000),mediaTime:clock.mediaTime,createdAt:Date.now(),speechStartAt:packetEndAt-(this.sample-startSample)/16,audioEndAt:packetEndAt-(this.sample-endSample)/16,engine:'sherpa-onnx/wasm-sensevoice-small-int8'};
+  return{phase,segmentId:String(this.segment),revision:this.revision,sourceText:text,...(sourceRaw===undefined?{}:{sourceRaw}),sourceLanguage:this.sourceLanguage==='auto'?detectedLanguage(text):this.sourceLanguage,start:Math.max(0,startSample/16000),end:Math.max(0,endSample/16000),mediaTime:clock.mediaTime,createdAt:Date.now(),speechStartAt:packetEndAt-(this.sample-startSample)/16,audioEndAt:packetEndAt-(this.sample-endSample)/16,engine:'sherpa-onnx/wasm-sensevoice-small-int8'};
  }
  private clearWindow(){
   this.windowSamples=0;this.windowPower=0;this.draftAttempts=0;
  }
- private decodeWindow(){
-  if(!this.windowSamples||Math.sqrt(this.windowPower/this.windowSamples)<=minVoiceRms)return '';
-  return this.recognizer.decode(this.window.subarray(0,this.windowSamples)).trim();
+ private voicedWindow(){
+  if(this.windowSamples&&Math.sqrt(this.windowPower/this.windowSamples)>minVoiceRms)return this.window.subarray(0,this.windowSamples);
+ }
+ private decodeFinal(samples:Float32Array|undefined):DecodedFinal{
+  if(!samples)return {text:''};
+  const result=this.recognizer.decodeFinal?.(samples);
+  return result?{text:result.text.trim(),sourceRaw:result.sourceRaw?.trim()}:{text:this.recognizer.decode(samples).trim()};
  }
  private drain(clock:AsrClock){
   const events:AsrEvent[]=[];
   while(!this.vad.isEmpty()){
    const segment=this.vad.front();
-   const text=this.recognizer.decode(segment.samples).trim();
+   const {text,sourceRaw}=this.decodeFinal(segment.samples);
    const start=this.vadOriginSample+segment.start,end=start+segment.samples.length;
-   if(meaningful(text))events.push(this.event('final',text,start,end,clock));
+   if(meaningful(text))events.push(this.event('final',text,start,end,clock,sourceRaw));
    this.vad.pop();this.segment++;this.revision=0;this.last='';
    this.lastFinalSample=end;
    this.clearWindow();
@@ -68,8 +73,8 @@ export class SenseVoiceSession{
   this.sample+=pcm.length;
   const events=this.drain(clock);
   if(this.sample-this.lastFinalSample>=finalSamples){
-   const text=this.decodeWindow();
-   if(meaningful(text))events.push({...this.event('final',text,this.sample-this.windowSamples,this.sample,clock),splitReason:'max-duration'});
+   const {text,sourceRaw}=this.decodeFinal(this.voicedWindow());
+   if(meaningful(text))events.push({...this.event('final',text,this.sample-this.windowSamples,this.sample,clock,sourceRaw),splitReason:'max-duration'});
    this.vad.reset();this.vadOriginSample=this.sample;this.vadOffset=0;
    this.clearWindow();this.lastFinalSample=this.sample;this.segment++;this.revision=0;this.last='';
    return events;
@@ -79,7 +84,8 @@ export class SenseVoiceSession{
   const maxAttempts=this.hasCaption?1:2;
   if(allowDraft&&!this.last&&this.draftAttempts<maxAttempts&&this.windowSamples>=draftWindow){
    this.draftAttempts++;
-   const text=this.decodeWindow();
+   const samples=this.voicedWindow();
+   const text=samples?this.recognizer.decode(samples).trim():'';
    if(meaningful(text))events.push(this.event('interim',text,this.sample-this.windowSamples,this.sample,clock));
   }
   return events;
@@ -87,8 +93,8 @@ export class SenseVoiceSession{
  flush(clock:AsrClock){
   this.vad.flush();const events=this.drain(clock);
   if(!events.length){
-   const text=this.decodeWindow();
-   if(meaningful(text))events.push(this.event('final',text,this.sample-this.windowSamples,this.sample,clock));
+   const {text,sourceRaw}=this.decodeFinal(this.voicedWindow());
+   if(meaningful(text))events.push(this.event('final',text,this.sample-this.windowSamples,this.sample,clock,sourceRaw));
   }
   this.clearWindow();return events;
  }

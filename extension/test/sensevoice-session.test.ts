@@ -92,6 +92,21 @@ test('flush finalizes a speech tail that VAD has not ended',()=>{
  ]);
  session.close();
 });
+test('keeps original words alongside restored punctuation on final events',()=>{
+ const session=new SenseVoiceSession(new FakeVad(),{
+  decode:()=> 'first words the next sentence',
+  decodeFinal:()=>({text:'First words. The next sentence.',sourceRaw:'First words the next sentence.'}),
+  free(){}
+ });
+ for(let n=1;n<=25;n++){
+  const events=session.accept(packet(),{capturedAt:n*100,mediaTime:n/10});
+  if(n===25)expect(events[0]).toMatchObject({phase:'interim',sourceText:'first words the next sentence'});
+ }
+ expect(session.flush({capturedAt:2500,mediaTime:2.5})).toMatchObject([
+  {phase:'final',sourceText:'First words. The next sentence.',sourceRaw:'First words the next sentence.'}
+ ]);
+ session.close();
+});
 test('punctuation-only decode does not create a caption at stop',()=>{
  const session=new SenseVoiceSession(new FakeVad(),{decode:()=>'.',free(){}});
  for(let n=1;n<=20;n++)session.accept(packet(),{capturedAt:n*100,mediaTime:n/10});

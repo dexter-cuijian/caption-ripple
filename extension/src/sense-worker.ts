@@ -1,4 +1,5 @@
 import {SenseVoiceSession} from './sensevoice-session';
+import {senseVoiceFinalText} from './sensevoice-punctuation';
 
 const worker=self as any;
 let session:SenseVoiceSession|undefined,sessionId='',epoch=0;
@@ -14,7 +15,12 @@ async function load(){
  }
  const recognizer=new runtime.OfflineRecognizer({featConfig:{sampleRate:16000,featureDim:80},modelConfig:{senseVoice:{model:'/model-0',language:'auto',useInverseTextNormalization:1},tokens:'/model-1',numThreads:4,provider:'cpu',debug:0}},module);
  const vad=runtime.createVad(module,{sileroVad:{model:'/model-2',threshold:.5,minSilenceDuration:.5,minSpeechDuration:.2,windowSize:512,maxSpeechDuration:15},sampleRate:16000,numThreads:1,provider:'cpu',bufferSizeInSeconds:30});
- session=new SenseVoiceSession(vad,{decode(samples:Float32Array){const stream=recognizer.createStream();try{stream.acceptWaveform(16000,samples);recognizer.decode(stream);return recognizer.getResult(stream).text;}finally{stream.free();}},free(){recognizer.free();}});
+ const recognize=(samples:Float32Array)=>{const stream=recognizer.createStream();try{stream.acceptWaveform(16000,samples);recognizer.decode(stream);return recognizer.getResult(stream);}finally{stream.free();}};
+ session=new SenseVoiceSession(vad,{
+  decode(samples){return recognize(samples).text;},
+  decodeFinal(samples){return senseVoiceFinalText(recognize(samples),samples);},
+  free(){recognizer.free();}
+ });
  status('ready');
 }
 worker.onmessage=({data}:MessageEvent)=>{
