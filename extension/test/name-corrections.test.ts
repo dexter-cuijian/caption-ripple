@@ -25,6 +25,13 @@ test('does not change unrelated homophones or non-Chinese source',()=>{
  expect(correctRecognizedNames({sourceText:'讲万安',sourceLanguage:'en'}).sourceText).toBe('讲万安');
 });
 
+test('uses political context from the same sentence for the ambiguous good-night spelling',()=>{
+ const sourceText='要记得跟奶奶讲晚安。台北市长講晚安今天出席。市长在直播里讲晚安后离开。';
+ const event=correctRecognizedNames({sourceText,sourceLanguage:'zh',phase:'final'});
+ expect(event.sourceRaw).toBe(sourceText);
+ expect(event.sourceText).toBe('要记得跟奶奶讲晚安。台北市长蒋万安今天出席。市长在直播里讲晚安后离开。');
+});
+
 test('video-scoped place aliases repair ASR while preserving raw text and other pages',()=>{
  const entry={id:'place',source:'新莊',target:'Xinzhuang',sourceLang:'zh',targetLang:'en',scope:'video',videoUrl:'https://youtube.com/watch?v=abc',asrAliases:['辛庄'] } as const;
  const original='辛庄的选民';
