@@ -10,14 +10,14 @@ const minVoiceRms=.0003;
 
 /** Keeps a bounded interim window while the VAD owns final utterance boundaries. */
 export class SenseVoiceSession{
- private sample=0;private origin:number|null=null;private segment=0;private revision=0;private last='';private lastFinalSample=0;private lastInterimSample=0;private vadOriginSample=0;
+ private sample=0;private packetEndAt:number|null=null;private segment=0;private revision=0;private last='';private lastFinalSample=0;private lastInterimSample=0;private vadOriginSample=0;
  private pending=new Float32Array(0);private window:Float32Array[]=[];private windowSamples=0;private closed=false;
  constructor(private vad:VoiceDetector,private recognizer:OfflineDecoder,private sourceLanguage='auto'){}
  private event(phase:'interim'|'final',text:string,startSample:number,endSample:number,clock:AsrClock):AsrEvent{
   if(this.sourceLanguage==='zh'||this.sourceLanguage==='yue')text=normalizeChineseNumerals(text);
   this.revision++;this.last=text;
-  const origin=this.origin??clock.capturedAt;
-  return{phase,segmentId:String(this.segment),revision:this.revision,sourceText:text,sourceLanguage:this.sourceLanguage==='auto'?detectedLanguage(text):this.sourceLanguage,start:Math.max(0,startSample/16000),end:Math.max(0,endSample/16000),mediaTime:clock.mediaTime,createdAt:Date.now(),speechStartAt:origin+startSample/16,audioEndAt:origin+endSample/16,engine:'sherpa-onnx/wasm-sensevoice-small-int8'};
+  const packetEndAt=this.packetEndAt??clock.capturedAt;
+  return{phase,segmentId:String(this.segment),revision:this.revision,sourceText:text,sourceLanguage:this.sourceLanguage==='auto'?detectedLanguage(text):this.sourceLanguage,start:Math.max(0,startSample/16000),end:Math.max(0,endSample/16000),mediaTime:clock.mediaTime,createdAt:Date.now(),speechStartAt:packetEndAt-(this.sample-startSample)/16,audioEndAt:packetEndAt-(this.sample-endSample)/16,engine:'sherpa-onnx/wasm-sensevoice-small-int8'};
  }
  private drain(clock:AsrClock){
   const events:AsrEvent[]=[];
@@ -35,7 +35,7 @@ export class SenseVoiceSession{
  accept(pcm:Int16Array,clock:AsrClock):AsrEvent[]{
   if(this.closed)throw new Error('SenseVoice session closed');
   if(pcm.length!==1600)throw new Error(`Expected 100 ms / 1600 samples, got ${pcm.length}`);
-  this.origin??=clock.capturedAt-(this.sample+pcm.length)/16;
+  this.packetEndAt=clock.capturedAt;
   const samples=Float32Array.from(pcm,value=>value/32768);
   this.sample+=samples.length;this.window.push(samples);this.windowSamples+=samples.length;
   while(this.windowSamples>240000){this.windowSamples-=this.window.shift()!.length;}
@@ -72,6 +72,6 @@ export class SenseVoiceSession{
   }
   this.window=[];this.windowSamples=0;return events;
  }
- reset(sourceLanguage='auto'){this.vad.reset();this.sourceLanguage=sourceLanguage;this.sample=0;this.origin=null;this.segment++;this.revision=0;this.last='';this.lastFinalSample=0;this.lastInterimSample=0;this.vadOriginSample=0;this.pending=new Float32Array(0);this.window=[];this.windowSamples=0;}
+ reset(sourceLanguage='auto'){this.vad.reset();this.sourceLanguage=sourceLanguage;this.sample=0;this.packetEndAt=null;this.segment++;this.revision=0;this.last='';this.lastFinalSample=0;this.lastInterimSample=0;this.vadOriginSample=0;this.pending=new Float32Array(0);this.window=[];this.windowSamples=0;}
  close(){if(this.closed)return;this.closed=true;this.vad.free();this.recognizer.free();}
 }

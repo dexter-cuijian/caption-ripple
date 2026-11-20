@@ -117,3 +117,24 @@ test('labels auto Japanese and Korean speech and honors an explicit Cantonese so
  }
  session.close();
 });
+
+test('a late VAD final uses the current packet clock after a delivery gap',()=>{
+ const vad=new FakeVad();
+ const session=new SenseVoiceSession(vad,{decode:()=> 'speech',free(){}});
+ session.accept(packet(),{capturedAt:100,mediaTime:0.1});
+ session.accept(packet(),{capturedAt:1200,mediaTime:1.2});
+ vad.queue.push({start:1600,samples:new Float32Array(1600)});
+ const events=session.accept(packet(),{capturedAt:1300,mediaTime:1.3});
+ expect(events).toMatchObject([{phase:'final',speechStartAt:1100,audioEndAt:1200}]);
+ session.close();
+});
+
+test('flushing a voiced tail keeps its last capture time, not the stop command time',()=>{
+ const session=new SenseVoiceSession(new FakeVad(),{decode:()=> 'last words',free(){}});
+ session.accept(packet(),{capturedAt:200,mediaTime:0.1});
+ session.accept(packet(),{capturedAt:1300,mediaTime:1.2});
+ expect(session.flush({capturedAt:2000,mediaTime:1.2})).toMatchObject([
+  {phase:'final',audioEndAt:1300}
+ ]);
+ session.close();
+});

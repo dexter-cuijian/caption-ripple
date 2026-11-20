@@ -6,7 +6,7 @@ import {translationMatches}from'./render';
 import {FinalTranslator,LiveTranslator,translatorAPI,type NativeTranslator} from './translation';
 import {RevisionGate,terminalClose} from './core';
 import {retainCaptionOnReset} from './media';
-import {captureAnchor,capturedAt,mediaTimeAt} from './capture-clock';
+import {captureAnchor,capturedAt,mediaTimeAt,workletPacketAt} from './capture-clock';
 import {BrowserMetrics} from './browser-metrics';
 import {defaults, initialState,send, type Config,type VideoInfo} from './shared';
 let context:AudioContext|undefined,stream:MediaStream|undefined,source:MediaStreamAudioSourceNode|undefined,worklet:AudioWorkletNode|undefined,silent:GainNode|undefined,playback:GainNode|undefined;
@@ -178,8 +178,10 @@ async function start(message:any){
   if(!accepted||video?.paused)return;
   if(config.recognitionEngine==='companion'&&socket?.readyState!==WebSocket.OPEN)return;
   if(config.recognitionEngine==='companion'&&socket!.bufferedAmount>64000){reset('音频发送积压，重新同步');return;}
-  if(anchor===null)anchor=captureAnchor(Date.now(),1600,16_000);
-  const packetAt=capturedAt(anchor,sampleStart+1600,16_000);
+  const now=Date.now();
+  if(anchor===null)anchor=captureAnchor(now,1600,16_000);
+  const browserPacketAt=config.recognitionEngine==='companion'?null:workletPacketAt(now,context!.currentTime,data.contextTime);
+  const packetAt=browserPacketAt??capturedAt(anchor,sampleStart+1600,16_000);
   const mediaTime=mediaTimeAt(video,packetAt);
   if(config.recognitionEngine!=='companion'){
    if(browserOutstanding>=50){reset('扩展内识别积压超过 5 秒，重新同步');asrWorker?.terminate();asrWorker=undefined;connectBrowser();return;}
