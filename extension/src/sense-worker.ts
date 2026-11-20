@@ -25,7 +25,9 @@ worker.onmessage=({data}:MessageEvent)=>{
    status('flushed',{sessionId,epoch});return;
   }
   if(data.kind!=='pcm'||!session||data.sessionId!==sessionId||data.epoch!==epoch)return;
-  const events=session.accept(new Int16Array(data.pcm),{capturedAt:data.capturedAt,mediaTime:data.mediaTime});
+  // A draft is expendable when the worker is catching up; final decoding still uses every packet.
+  const allowDraft=Date.now()-data.capturedAt<250;
+  const events=session.accept(new Int16Array(data.pcm),{capturedAt:data.capturedAt,mediaTime:data.mediaTime},allowDraft);
   for(const event of events)status('subtitle',{event:{...event,type:'subtitle',sessionId,epoch}});
   status('processed',{sessionId,epoch});
  }catch(error){status('error',{message:String(error)});}

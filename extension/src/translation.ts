@@ -1,4 +1,5 @@
 import{withDeadline}from'./providers';
+import{continuationInput,splitContextTranslation}from'./caption-context';
 import type{TranslationEvent}from'./history';
 export interface TranslationProvider{translate(text:string,sourceLanguage:string,targetLanguage:string,signal?:AbortSignal):Promise<string>}
 export class LanguageLock{
@@ -8,25 +9,56 @@ export class LanguageLock{
  }
 }
 export class FinalTranslator{
- private session='';private epoch=0;private generation=0;private busy=false;private queue:any[]=[];private latest=new Map<string,number>();private failed:any[]=[];private controller=new AbortController();language=new LanguageLock();
+ private session='';private epoch=0;private generation=0;private busy=false;private queue:any[]=[];private latest=new Map<string,number>();private failed:any[]=[];private previousFinal:any;private controller=new AbortController();language=new LanguageLock();
  constructor(private provider:TranslationProvider,private emit:(event:TranslationEvent)=>void,private failure:(event:any)=>void,private options:{deadlineMs?:number;onWork?:(active:boolean)=>void}={}){}
- reset(session:string,epoch:number){this.controller.abort();this.controller=new AbortController();this.generation++;this.session=session;this.epoch=epoch;this.busy=false;this.queue=[];this.failed=[];this.latest.clear();this.language=new LanguageLock();}
+ reset(session:string,epoch:number){this.controller.abort();this.controller=new AbortController();this.generation++;this.session=session;this.epoch=epoch;this.busy=false;this.queue=[];this.failed=[];this.previousFinal=undefined;this.latest.clear();this.language=new LanguageLock();}
  enqueue(event:any,targetLanguage:string){
  if(event.phase!=='final'||event.sessionId!==this.session||event.epoch!==this.epoch)return;
  const key=event.segmentId;if(event.revision<=(this.latest.get(key)??-1))return;this.latest.set(key,event.revision);
  const sourceLanguage=event.sourceLanguage==='yue'?'zh':event.sourceLanguage==='auto'?this.language.observe(event.sourceText):event.sourceLanguage;
- const task={...event,sourceLanguage,targetLanguage};if(this.queue.length>=20){this.failure({...task,sourceRevision:task.revision,error:'翻译队列已满；原文已保存在历史中'});return;}
+ const task={...event,sourceLanguage,targetLanguage};
+ const previous=this.previousFinal;
+ const input=previous&&!previous.context&&previous.segmentId!==task.segmentId?continuationInput(previous,task):undefined;
+ if(input)task.context={previous,input};
+ this.previousFinal=task;
+ if(this.queue.length>=20){this.failure({...task,sourceRevision:task.revision,error:'翻译队列已满；原文已保存在历史中'});return;}
  this.queue.push(task);void this.drain();
  }
  retry(){this.queue.push(...this.failed.splice(0,Math.max(0,20-this.queue.length)));void this.drain();}
+ private emitResult(task:any,text:string,startedAt:number,translationRevision=1){
+  this.emit({type:'translation',sessionId:task.sessionId,epoch:task.epoch,segmentId:task.segmentId,sourceRevision:task.revision,translationRevision,glossaryVersion:task.glossaryVersion,matchedTerms:task.matchedTerms,targetLanguage:task.targetLanguage,text,engine:task.sourceLanguage===task.targetLanguage?'same-language':undefined,phase:'final',startedAt,completedAt:Date.now()});
+ }
  private async drain(){
- if(this.busy)return;this.busy=true;this.options.onWork?.(true);const generation=this.generation,signal=this.controller.signal;
- try{while(this.queue.length&&generation===this.generation){const task=this.queue.shift();if(this.latest.get(task.segmentId)!==task.revision)continue;const startedAt=Date.now();
- try{const text=task.sourceLanguage===task.targetLanguage?task.sourceText:await withDeadline(active=>this.provider.translate(task.sourceText,task.sourceLanguage,task.targetLanguage,active),this.options.deadlineMs??8000,signal);
- if(typeof text!=='string'||!text.trim())throw new Error('翻译引擎返回空文本');
- if(generation===this.generation&&this.latest.get(task.segmentId)===task.revision)this.emit({type:'translation',sessionId:task.sessionId,epoch:task.epoch,segmentId:task.segmentId,sourceRevision:task.revision,translationRevision:1,glossaryVersion:task.glossaryVersion,matchedTerms:task.matchedTerms,targetLanguage:task.targetLanguage,text,engine:task.sourceLanguage===task.targetLanguage?'same-language':undefined,phase:'final',startedAt,completedAt:Date.now()});
- }catch(error){if(generation===this.generation&&!signal.aborted){this.failure({...task,sourceRevision:task.revision,error:String(error)});if(this.failed.length<20)this.failed.push(task);}}
- }}finally{if(generation===this.generation){this.busy=false;this.options.onWork?.(false);}}
+  if(this.busy)return;this.busy=true;this.options.onWork?.(true);
+  const generation=this.generation,signal=this.controller.signal;
+  const current=(task:any)=>generation===this.generation&&this.latest.get(task.segmentId)===task.revision;
+  try{
+   while(this.queue.length&&generation===this.generation){
+    const task=this.queue.shift();if(!current(task))continue;
+    const startedAt=Date.now();
+    try{
+     const context=task.context;
+     if(context&&current(context.previous)){
+      const repaired=await withDeadline(async active=>{
+       const text=await this.provider.translate(context.input,task.sourceLanguage,task.targetLanguage,active);
+       return splitContextTranslation(text);
+      },500,signal).catch(()=>undefined);
+      if(!current(task))continue;
+      if(repaired&&current(context.previous)){
+       this.emitResult(context.previous,repaired[0],startedAt,2);
+       this.emitResult(task,repaired[1],startedAt);
+       this.failed=this.failed.filter(failed=>failed.segmentId!==context.previous.segmentId);
+       continue;
+      }
+     }
+     const text=task.sourceLanguage===task.targetLanguage?task.sourceText:await withDeadline(active=>this.provider.translate(task.sourceText,task.sourceLanguage,task.targetLanguage,active),this.options.deadlineMs??8000,signal);
+     if(typeof text!=='string'||!text.trim())throw new Error('翻译引擎返回空文本');
+     if(current(task))this.emitResult(task,text,startedAt);
+    }catch(error){
+     if(current(task)&&!signal.aborted){this.failure({...task,sourceRevision:task.revision,error:String(error)});if(this.failed.length<20)this.failed.push(task);}
+    }
+   }
+  }finally{if(generation===this.generation){this.busy=false;this.options.onWork?.(false);}}
  }
 }
 /** Translate the visible page of a growing ASR hypothesis without waiting for a final. */

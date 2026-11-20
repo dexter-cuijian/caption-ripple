@@ -45,7 +45,7 @@ export class SenseVoiceSession{
   }
   return events;
  }
- accept(pcm:Int16Array,clock:AsrClock):AsrEvent[]{
+ accept(pcm:Int16Array,clock:AsrClock,allowDraft=true):AsrEvent[]{
   if(this.closed)throw new Error('SenseVoice session closed');
   if(pcm.length!==1600)throw new Error(`Expected 100 ms / 1600 samples, got ${pcm.length}`);
   this.packetEndAt=clock.capturedAt;
@@ -69,7 +69,7 @@ export class SenseVoiceSession{
   const events=this.drain(clock);
   if(this.sample-this.lastFinalSample>=finalSamples){
    const text=this.decodeWindow();
-   if(meaningful(text))events.push(this.event('final',text,this.sample-this.windowSamples,this.sample,clock));
+   if(meaningful(text))events.push({...this.event('final',text,this.sample-this.windowSamples,this.sample,clock),splitReason:'max-duration'});
    this.vad.reset();this.vadOriginSample=this.sample;this.vadOffset=0;
    this.clearWindow();this.lastFinalSample=this.sample;this.segment++;this.revision=0;this.last='';
    return events;
@@ -77,7 +77,7 @@ export class SenseVoiceSession{
   // Earlier drafts only help before the first caption; later ones can sit behind the previous final.
   const draftWindow=this.hasCaption?2*draftSamples:draftSamples*(this.draftAttempts+1);
   const maxAttempts=this.hasCaption?1:2;
-  if(!this.last&&this.draftAttempts<maxAttempts&&this.windowSamples>=draftWindow){
+  if(allowDraft&&!this.last&&this.draftAttempts<maxAttempts&&this.windowSamples>=draftWindow){
    this.draftAttempts++;
    const text=this.decodeWindow();
    if(meaningful(text))events.push(this.event('interim',text,this.sample-this.windowSamples,this.sample,clock));

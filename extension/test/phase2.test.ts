@@ -93,3 +93,31 @@ test('punctuation starts a new visual sentence and English pages have at most tw
  expect(subtitlePage('第一句。第二句话').text).toBe('第二句话');
  const text=Array.from({length:15},(_,i)=>`word${i}`).join(' ');expect(subtitlePage(text).text).toBe('word12 word13 word14');
 });
+
+test('repairs adjacent English to Chinese translations across a forced unfinished cut',async()=>{
+ const marker='ZXQ8ZXQ';
+ const events:any[]=[];
+ const provider={translate:async(text:string)=>text.includes(marker)?'对于拉特妮这样的数百万人，'+marker+'这样的洪水已经司空见惯。':'原来的片段'};
+ const translator=new FinalTranslator(provider,event=>events.push(event),()=>{});
+ translator.reset('context',2);
+ const prior={phase:'final',sessionId:'context',epoch:2,segmentId:'4',revision:1,sourceLanguage:'en',sourceText:'For millions like Ratini who.',start:0,end:10,engine:'sherpa-onnx/wasm-sensevoice-small-int8',splitReason:'max-duration'};
+ translator.enqueue(prior,'zh');
+ translator.enqueue({...prior,segmentId:'5',sourceText:'Like many Indonesians goes by one name, this flooding is routine.',start:10.1,end:17,splitReason:undefined},'zh');
+ await vi.waitFor(()=>expect(events).toHaveLength(3));
+ expect(events.slice(1)).toMatchObject([
+  {segmentId:'4',translationRevision:2,text:'对于拉特妮这样的数百万人，'},
+  {segmentId:'5',translationRevision:1,text:'这样的洪水已经司空见惯。'}
+ ]);
+});
+
+test('an unrecognized boundary marker falls back to independent translations',async()=>{
+ const calls:string[]=[];const events:any[]=[];
+ const translator=new FinalTranslator({translate:async(text)=>{calls.push(text);return text.includes('ZXQ8ZXQ')?'The engine dropped the marker':'正常译文';}},event=>events.push(event),()=>{});
+ translator.reset('context',2);
+ const prior={phase:'final',sessionId:'context',epoch:2,segmentId:'4',revision:1,sourceLanguage:'en',sourceText:'It was the end of.',start:0,end:10,engine:'sherpa-onnx/wasm-sensevoice-small-int8',splitReason:'max-duration'};
+ translator.enqueue(prior,'zh');
+ translator.enqueue({...prior,segmentId:'5',sourceText:'The previous decade.',start:10,end:13,splitReason:undefined},'zh');
+ await vi.waitFor(()=>expect(events).toHaveLength(2));
+ expect(calls).toHaveLength(3);
+ expect(events.map(event=>event.text)).toEqual(['正常译文','正常译文']);
+});

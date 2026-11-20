@@ -21,11 +21,11 @@ if(!(globalThis as any)[sentinel]){
  let importedCues:ImportedCue[]|undefined,importedVideoId='',importedCueIndex=-2;
  let lastUrl=location.href;let pending=false;let currentEvent:any;let displayedTranslationRevision=0,finalShownAt=0;
  let typingTimer:ReturnType<typeof setTimeout>|undefined,typingTarget='',typingIdentity='';
- let holdTimer:ReturnType<typeof setTimeout>|undefined,pendingEvent:any,pendingFinalTranslation:any,pendingLiveTranslation:any;
+ let holdTimer:ReturnType<typeof setTimeout>|undefined,pendingEvent:any,pendingUntil=0,pendingFinalTranslation:any,pendingLiveTranslation:any;
  const host=document.createElement('div');host.id='local-caption-host';
  const shadow=host.attachShadow({mode:'closed'});const text=document.createElement('div');text.setAttribute('role','status');text.setAttribute('aria-live','polite');
  const sourceLine=document.createElement('span'),targetLine=document.createElement('span');sourceLine.className='source';targetLine.className='translation';text.append(sourceLine,targetLine);
- const discardPending=()=>{clearTimeout(holdTimer);pendingEvent=undefined;pendingFinalTranslation=undefined;pendingLiveTranslation=undefined;};
+ const discardPending=()=>{clearTimeout(holdTimer);pendingUntil=0;pendingEvent=undefined;pendingFinalTranslation=undefined;pendingLiveTranslation=undefined;};
  const clearText=()=>{discardPending();clearTimeout(typingTimer);typingTarget='';typingIdentity='';sourceLine.textContent='';targetLine.textContent='';displayedTranslationRevision=0;finalShownAt=0;};
  const showSource=(target:string,identity:string,animate:boolean)=>{
   clearTimeout(typingTimer);typingTarget=target;
@@ -141,9 +141,20 @@ if(!(globalThis as any)[sentinel]){
   if(message.kind==='epoch'){const keep=retainCaptionOnReset(message.reason);if(keep&&pendingEvent)flushPending();sessionId=message.sessionId;epoch=message.epoch;gate.reset(sessionId,epoch);pageCaptionText='';pageCaptionAt=0;pendingCaptionText='';pageCaptionRevisions.reset();clearTimeout(pageCaptionTimer);if(!keep){clearText();currentEvent=undefined;}position();}
   if(message.kind==='clear'){enabled=false;sessionId='';importedCues=undefined;importedVideoId='';importedCueIndex=-2;clearTimeout(pageCaptionTimer);pageCaptionText='';pendingCaptionText='';pageCaptionRevisions.reset();clearText();host.remove();}
   if(message.kind==='subtitle'&&enabled&&(message.event.engine==='subtitle-import'||gate.accept(message.event))){
-   const event=message.event,now=Date.now(),delay=pendingEvent&&sameCaption(pendingEvent,event)?Math.max(0,finalShownAt+3000-now):captionHoldDelay(currentEvent,event,finalShownAt,now);
-   if(delay>0){pendingEvent=event;clearTimeout(holdTimer);holdTimer=setTimeout(flushPending,delay);}
-   else{const finalTranslation=pendingFinalTranslation,liveTranslation=pendingLiveTranslation,samePending=sameCaption(pendingEvent,event);discardPending();showSubtitle(event);if(samePending&&liveTranslation)showLiveTranslation(liveTranslation);if(samePending&&finalTranslation)showFinalTranslation(finalTranslation);}
+   const event=message.event,now=Date.now(),samePending=!!pendingEvent&&sameCaption(pendingEvent,event);
+   const finalTranslation=samePending?pendingFinalTranslation:undefined;
+   const liveTranslation=samePending?pendingLiveTranslation:undefined;
+   const budget=captionHoldDelay(currentEvent,event,finalShownAt,now);
+   const delay=pendingUntil?Math.min(budget,Math.max(0,pendingUntil-now)):budget;
+   discardPending();
+   if(delay>0){
+    pendingEvent=event;pendingUntil=now+delay;pendingFinalTranslation=finalTranslation;pendingLiveTranslation=liveTranslation;
+    holdTimer=setTimeout(flushPending,delay);
+   }else{
+    showSubtitle(event);
+    if(liveTranslation)showLiveTranslation(liveTranslation);
+    if(finalTranslation)showFinalTranslation(finalTranslation);
+   }
   }
   reply({ok:true});
  });scan();

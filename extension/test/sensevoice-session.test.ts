@@ -166,3 +166,12 @@ test('only the first caption of an epoch uses the early draft window',()=>{
  expect(lengths.at(-1)).toBe(40000);
  session.close();
 });
+
+test('drops provisional decoding when audio packets are already queued but still finalizes',()=>{
+ const lengths:number[]=[];
+ const session=new SenseVoiceSession(new FakeVad(),{decode:samples=>{lengths.push(samples.length);return 'speech';},free(){}});
+ for(let n=1;n<100;n++)expect(session.accept(packet(),{capturedAt:n*100,mediaTime:n/10},false)).toEqual([]);
+ expect(session.accept(packet(),{capturedAt:10000,mediaTime:10},false)).toMatchObject([{phase:'final',splitReason:'max-duration'}]);
+ expect(lengths).toEqual([160000]);
+ session.close();
+});
