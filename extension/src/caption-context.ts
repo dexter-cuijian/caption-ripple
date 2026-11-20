@@ -1,6 +1,8 @@
 const marker='ZXQ8ZXQ';
 const incompleteEnglish=/\b(?:a|an|the|of|to|for|from|with|in|on|at|by|and|or|but|who|whom|whose|which|that)\.?$/iu;
 
+const shortReply=/^(?:yeah|yep|yes|no|nope|okay|ok|right|uh|um|well|hmm|mm-hmm)[.!?…]*$/iu;
+
 interface ContextSpan {
  sourceLanguage:string;targetLanguage:string;sourceText:string;engine?:string;splitReason?:string;start?:number;end?:number;
 }
@@ -11,7 +13,7 @@ export function continuationInput(previous:ContextSpan,current:ContextSpan):stri
  const gap=(current.start??NaN)-(previous.end??NaN);
  if(!Number.isFinite(gap)||gap<-.15||gap>.8)return;
  const left=previous.sourceText.trim(),right=current.sourceText.trim();
- if(!right||left.length+right.length>500||left.includes(marker)||right.includes(marker)||!incompleteEnglish.test(left))return;
+ if(!right||shortReply.test(right)||left.length+right.length>500||left.includes(marker)||right.includes(marker)||!incompleteEnglish.test(left))return;
  return `${left.replace(/\.$/u,'')} ${marker} ${right}`;
 }
 

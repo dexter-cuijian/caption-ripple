@@ -121,3 +121,14 @@ test('an unrecognized boundary marker falls back to independent translations',as
  expect(calls).toHaveLength(3);
  expect(events.map(event=>event.text)).toEqual(['正常译文','正常译文']);
 });
+
+test('does not attach a standalone spoken acknowledgment to the previous unfinished caption',async()=>{
+ const calls:string[]=[];const events:any[]=[];
+ const translator=new FinalTranslator({translate:async(text)=>{calls.push(text);return '分开译文';}},event=>events.push(event),()=>{});
+ translator.reset('context',2);
+ const prior={phase:'final',sessionId:'context',epoch:2,segmentId:'4',revision:1,sourceLanguage:'en',sourceText:'She cares for a family of.',start:0,end:10,engine:'sherpa-onnx/wasm-sensevoice-small-int8',splitReason:'max-duration'};
+ translator.enqueue(prior,'zh');
+ translator.enqueue({...prior,segmentId:'5',sourceText:'Yeah.',start:10,end:11,splitReason:undefined},'zh');
+ await vi.waitFor(()=>expect(events).toHaveLength(2));
+ expect(calls).toEqual(['She cares for a family of.','Yeah.']);
+});
