@@ -143,3 +143,20 @@ test('keeps the original pair when the translator moves almost all text across t
  await vi.waitFor(()=>expect(events.some(e=>e.segmentId==='5')).toBe(true));
  expect(events.map(e=>[e.translationRevision,e.text])).toEqual([[1,'原来完整的译文'],[1,'原来完整的译文']]);
 });
+
+test('a crossed glossary name does not overwrite independently translated rows',async()=>{
+ const outputs:any[]=[];
+ const translator=new FinalTranslator({translate:async(text)=>text.includes('ZXQ8ZXQ')
+  ?'孩子们在洪水里找到快乐。和许多印度尼西亚人一样只有一个名字的 ZXQ8ZXQ 像 35 岁的 Ratini 这样的数百万人认为这种洪水很常见。'
+  :text.includes('Ratini')?'孩子们在洪水里找到快乐。对于像 Ratini 这样的人，':'这类洪水现在很常见。'},
+  event=>outputs.push(event),()=>{});
+ translator.reset('context',2);
+ const prior={phase:'final',sessionId:'context',epoch:2,segmentId:'4',revision:1,sourceLanguage:'en',sourceText:'The children enjoy the flooded street. For millions like Ratini who.',start:0,end:10,engine:'sherpa-onnx/wasm-sensevoice-small-int8',splitReason:'max-duration',
+  matchedTerms:[{start:55,end:61,sourceText:'Ratini',entry:{id:'name',source:'Ratini',target:'Ratini',sourceLang:'en',targetLang:'zh',scope:'global'}}]};
+ translator.enqueue(prior,'zh');
+ translator.enqueue({...prior,segmentId:'5',sourceText:'Like many Indonesians uses one name, this flooding is routine.',start:10.1,end:17,splitReason:undefined,matchedTerms:[]},'zh');
+ await vi.waitFor(()=>expect(outputs.some(event=>event.segmentId==='5')).toBe(true));
+ expect(outputs.map(event=>[event.segmentId,event.translationRevision,event.text])).toEqual([
+  ['4',1,'孩子们在洪水里找到快乐。对于像 Ratini 这样的人，'],['5',1,'这类洪水现在很常见。']
+ ]);
+});

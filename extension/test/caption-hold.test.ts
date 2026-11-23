@@ -26,3 +26,12 @@ test('reserves time for the browser to render after an overlap hold',()=>{
  expect(captionHoldDelay(previous,{...next,phase:'interim',audioEndAt:1400},1000,1800)).toBe(1000);
  expect(captionHoldDelay(previous,{...next,audioEndAt:1700},1000,1800)).toBe(2200);
 });
+
+test('reserves draft translation time without shortening the minimum reading interval',()=>{
+ const previous={phase:'final',sessionId:'s',epoch:1,segmentId:'1',engine:'asr'};
+ const draft={...previous,phase:'interim',segmentId:'2',audioEndAt:1550};
+ expect(captionHoldDelay(previous,draft,1000,1800)).toBe(1150);
+ expect(captionHoldDelay(previous,draft,1000,1800,true)).toBe(950);
+ expect(captionHoldDelay(previous,{...draft,audioEndAt:1200},1000,1800,true)).toBe(700);
+ expect(captionHoldDelay(previous,{...draft,phase:'final'},1000,1800,true)).toBe(2200);
+});

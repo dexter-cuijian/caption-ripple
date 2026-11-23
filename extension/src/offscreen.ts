@@ -16,6 +16,7 @@ let browserReady=false;
 let stopping:Promise<void>|undefined;
 let sessionId='',epoch=0,seq=0,sampleStart=0,anchor:number|null=null,browserOutstanding=0;
 const pendingSourceWrites=new Set<Promise<void>>();
+const pendingTranslationWrites=new Set<Promise<void>>();
 let latestSource:any;let glossary:GlossaryState=emptyGlossary,captureScopeUrl='';
 let pageCaptionUntil=0,pageCaptionMode=false;
 const scopeUrl=()=>video?.url||captureScopeUrl;
@@ -29,7 +30,8 @@ let draftEngine='chrome-translator';
 function translationCompleted(event:import('./history').TranslationEvent){
  publish({...(translationMatches(latestSource,event,state.latestTranslationRevision??0)?{latestTranslation:event.text,latestTranslationRevision:event.translationRevision??1}:{}),translationStatus:'ready',translationError:undefined});
  if((event.translationRevision??1)===1)proofreader.recordDraft(event);
- void send('background','translation',{event:{...event,engine:event.engine??draftEngine}}).then(response=>{if(response?.error)throw new Error(response.error);}).catch(error=>publish({translationError:String(error)}));
+ const write=send('background','translation',{event:{...event,engine:event.engine??draftEngine}}).then(response=>{if(response?.error)throw new Error(response.error);}).catch(error=>publish({translationError:String(error)}));
+ pendingTranslationWrites.add(write);void write.finally(()=>pendingTranslationWrites.delete(write));
 }
 const proofreader=new ContextProofreader(localProvider,event=>{publish({proofreadingStatus:'revised',proofreadingError:undefined});translationCompleted(event);},event=>{publish({proofreadingStatus:event.proofreadingState,proofreadingError:event.error});void send('background','proofreading-failed',{event}).catch(()=>{});});
 type TranslationScope={entries:GlossaryEntry[];url:string};
@@ -152,7 +154,14 @@ async function performStop(){
    worker.addEventListener('message',onMessage);worker.addEventListener('error',finish);
    try{worker.postMessage({kind:'flush',sessionId:currentSession,epoch:currentEpoch,capturedAt:Date.now(),mediaTime:video?.currentTime??null});}catch{finish();}
   });
-  await new Promise<void>(resolve=>{const timeout=setTimeout(resolve,2000);void Promise.allSettled([...pendingSourceWrites]).then(()=>{clearTimeout(timeout);resolve();});});
+  const saved=Promise.allSettled([...pendingSourceWrites])
+   .then(()=>translations.whenIdle())
+   .then(()=>Promise.allSettled([...pendingTranslationWrites]));
+  await new Promise<void>(resolve=>{
+   const timeout=setTimeout(resolve,2000);
+   const finish=()=>{clearTimeout(timeout);resolve();};
+   void saved.then(finish,finish);
+  });
  }
  browserMetrics.clearPending();
  pageCaptionMode=false;pageCaptionUntil=0;browserOutstanding=0;

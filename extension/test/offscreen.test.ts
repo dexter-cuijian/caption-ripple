@@ -231,3 +231,37 @@ test('a seek during model loading waits for readiness before sending captured PC
  expect(worker.messages.at(-1)).toMatchObject({kind:'pcm',sessionId:'session',epoch:1});
  await command('stop');
 });
+
+test('stopping SenseVoice saves the translated flush tail before closing the session',async()=>{
+ let finishTranslation:((text:string)=>void)|undefined;
+ let finishWrite:(()=>void)|undefined;
+ vi.stubGlobal('Translator',{availability:async()=>'available',create:async()=>({
+  translate:async(text:string)=>text==='Hello.'?'你好':new Promise<string>(resolve=>{finishTranslation=resolve;}),
+  destroy:()=>{}
+ })});
+ const send=chrome.runtime.sendMessage;
+ vi.spyOn(chrome.runtime,'sendMessage').mockImplementation((message:any)=>{
+  if(message.kind!=='translation')return send(message);
+  runtimeMessages.push(message);
+  return new Promise(resolve=>{finishWrite=()=>resolve({});});
+ });
+ await start(undefined,{config:{recognitionEngine:'browser-sensevoice',sourceLanguage:'en',targetLanguage:'zh'}});
+ const worker=workers[0];
+ worker.onmessage({data:{kind:'ready'}});
+ worker.onmessage({data:{kind:'reset-done',sessionId:'session',epoch:0}});
+ const post=worker.postMessage.bind(worker);
+ worker.postMessage=(message:any)=>{
+  if(message.kind==='flush')worker.onmessage({data:{kind:'subtitle',event:{phase:'final',sessionId:'session',epoch:0,segmentId:'last',revision:1,sourceText:'This is the last line.',sourceLanguage:'en'}}});
+  post(message);
+ };
+ let stopped=false;
+ const stopResult=command('stop').then(()=>{stopped=true;});
+ await vi.waitFor(()=>expect(finishTranslation).toBeDefined());
+ expect(stopped).toBe(false);
+ finishTranslation!('这是最后一句。');
+ await vi.waitFor(()=>expect(finishWrite).toBeDefined());
+ expect(stopped).toBe(false);
+ finishWrite!();
+ await stopResult;
+ expect(runtimeMessages).toContainEqual(expect.objectContaining({kind:'translation',event:expect.objectContaining({segmentId:'last',text:'这是最后一句。'})}));
+});

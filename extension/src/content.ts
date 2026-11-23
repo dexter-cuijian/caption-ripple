@@ -148,7 +148,9 @@ if(!(globalThis as any)[sentinel]){
    const event=message.event,now=Date.now(),samePending=!!pendingEvent&&sameCaption(pendingEvent,event);
    const finalTranslation=samePending?pendingFinalTranslation:undefined;
    const liveTranslation=samePending?pendingLiveTranslation:undefined;
-   const budget=captionHoldDelay(currentEvent,event,finalShownAt,now);
+   const sourceLanguage=event.sourceLanguage==='yue'?'zh':event.sourceLanguage;
+   const awaitingDraftTranslation=config.translationEngine!=='off'&&sourceLanguage!==config.targetLanguage&&!liveTranslation;
+   const budget=captionHoldDelay(currentEvent,event,finalShownAt,now,awaitingDraftTranslation);
    const delay=pendingUntil?Math.min(budget,Math.max(0,pendingUntil-now)):budget;
    discardPending();
    if(delay>0){
