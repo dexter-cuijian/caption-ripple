@@ -16,6 +16,15 @@ test('does not return a confirmed Korean absence as positive attendance',async()
  await expect(translateChecked('그는 회의에 참석했습니다.','ko','zh',async()=> '他出席了会议。')).resolves.toBe('他出席了会议。');
 });
 
+test('keeps the negation when recognition repeats the last syllable of attendance',async()=>{
+ const original='중앙정부를 무시한 주 대표들은 대부분 회의에 불 참석석했습니다.';
+ const translate=vi.fn(async(input:string)=>input.includes('불참했습니다')?'大多数州代表缺席了会议。':'大多数州代表出席了会议。');
+ await expect(translateChecked(original,'ko','zh',translate)).resolves.toBe('大多数州代表缺席了会议。');
+ expect(translate).toHaveBeenCalledWith('중앙정부를 무시한 주 대표들은 대부분 회의에 불참했습니다.');
+ await expect(translateChecked(original,'ko','zh',async()=> '大多数州代表出席了会议。')).rejects.toThrow('否定');
+ await expect(translateChecked('그는 회의에 참석석했습니다.','ko','zh',async input=>input)).resolves.toBe('그는 회의에 참석석했습니다.');
+});
+
 test('a punctuation-only result never replaces readable source text',async()=>{
  await expect(translateChecked('有。','en','zh',async()=> '。。')).rejects.toThrow('仅包含标点');
 });

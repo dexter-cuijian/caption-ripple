@@ -1,4 +1,4 @@
-const splitAbsence=/(?<![\p{L}\p{N}])불[ \t]*참석(?=했|하|한|할|함|[ \t.,!?。]|$)/gu;
+const recognizedAbsence=/(?<![\p{L}\p{N}])불[ \t]*참석석?(?=했|하|한|할|함|[ \t.,!?。]|$)/gu;
 const koreanAbsence=/(?<![\p{L}\p{N}])불참(?:했|하|한|할|함|[ \t.,!?。]|$)/u;
 const chineseAttendance=/(?:参加|出席|到会|到场|参会|列席)/u;
 const chineseAbsence=/(?:缺席|缺阵|未到会|未到场|未参会|(?:没(?:有)?|未|不|拒绝|放弃|无法)[^。！？；，、]{0,6}(?:参加|出席|到会|到场|参会|列席))/u;
@@ -29,7 +29,7 @@ export async function translateChecked(
 ):Promise<string>{
  const toChinese=/^zh(?:-|$)/.test(targetLanguage),koreanToChinese=sourceLanguage==='ko'&&toChinese;
  let prepared=source;
- if(koreanToChinese)prepared=source.replace(splitAbsence,'불참').replace(mixedKoreanCount,canonicalKoreanCount);
+ if(koreanToChinese)prepared=source.replace(recognizedAbsence,'불참').replace(mixedKoreanCount,canonicalKoreanCount);
  if(sourceLanguage==='en'&&toChinese)prepared=source.replace(gluedHouseholdCount,'$1 $2');
  const translated=await translate(prepared);
  if(content.test(source)&&!content.test(translated))throw new Error('译文仅包含标点或没有可读文字；已保留原文。');
