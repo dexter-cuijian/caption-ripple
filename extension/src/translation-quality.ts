@@ -5,6 +5,7 @@ const chineseAbsence=/(?:缺席|缺阵|未到会|未到场|未参会|(?:没(?:�
 const content=/[\p{L}\p{N}]/u;
 const koreanNumberUnits:Record<string,number>={천:1000,백:100,십:10};
 const mixedKoreanCount=/(?<![\p{L}\p{N}.,+-])[0-9영일이삼사오육칠팔구십백천]+(?=[ \t]*(?:명|위|가지))/gu;
+const repeatedKoreanPlacement=/(?<![\p{L}\p{N}])([0-9일이삼사오육칠팔구십백천](?:[ \t]*[0-9일이삼사오육칠팔구십백천]){0,4})[ \t]*위로로(?=[ \t]+경기를[ \t]+마쳤)/gu;
 const gluedHouseholdCount=/\b(family of)(\d+)(?=$|[\s.,!?;:])/giu;
 
 function canonicalKoreanCount(value:string):string{
@@ -29,7 +30,9 @@ export async function translateChecked(
 ):Promise<string>{
  const toChinese=/^zh(?:-|$)/.test(targetLanguage),koreanToChinese=sourceLanguage==='ko'&&toChinese;
  let prepared=source;
- if(koreanToChinese)prepared=source.replace(recognizedAbsence,'불참').replace(mixedKoreanCount,canonicalKoreanCount);
+ if(koreanToChinese)prepared=source.replace(recognizedAbsence,'불참')
+  .replace(repeatedKoreanPlacement,(_match,number:string)=>`${number.replace(/[ \t]+/gu,'')}위로`)
+  .replace(mixedKoreanCount,canonicalKoreanCount);
  if(sourceLanguage==='en'&&toChinese)prepared=source.replace(gluedHouseholdCount,'$1 $2');
  const translated=await translate(prepared);
  if(content.test(source)&&!content.test(translated))throw new Error('译文仅包含标点或没有可读文字；已保留原文。');

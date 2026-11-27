@@ -38,6 +38,16 @@ test('canonicalizes mixed Korean counts before Chinese translation',async()=>{
  await expect(translateChecked(raw,'ko','en',translate)).resolves.toBe(raw);
 });
 
+test('preserves a Korean sports placement when recognition repeats its last syllable',async()=>{
+ const source='가이드 안나 오가진 스카가 슈퍼 대회전에서 십 삼 위로로 경기를 마쳤다.';
+ const translate=vi.fn(async(input:string)=>input.includes('십삼위로')?'获得第 13 名。':'完成了第十三场比赛。');
+ await expect(translateChecked(source,'ko','zh',translate)).resolves.toBe('获得第 13 名。');
+ expect(translate).toHaveBeenCalledWith('가이드 안나 오가진 스카가 슈퍼 대회전에서 십삼위로 경기를 마쳤다.');
+ await expect(translateChecked('대표는 이 십 사 위로로 경기를 마쳤다. 그는 위로로 안정을 찾았다.','ko','zh',async input=>input))
+  .resolves.toBe('대표는 이십사위로 경기를 마쳤다. 그는 위로로 안정을 찾았다.');
+ await expect(translateChecked(source,'ko','en',async input=>input)).resolves.toBe(source);
+});
+
 test('separates a glued English household count before Chinese translation',async()=>{
  const raw='She cares for a family of7. The account family of7_x remains valid.';
  const translate=vi.fn(async(input:string)=>input);
