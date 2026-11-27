@@ -28,3 +28,11 @@ test('canonicalizes mixed Korean counts before Chinese translation',async()=>{
   .resolves.toBe('시료는 56가지다. 12십명이 아니다. 이미 36명과 삼십육명이 있었다.');
  await expect(translateChecked(raw,'ko','en',translate)).resolves.toBe(raw);
 });
+
+test('separates a glued English household count before Chinese translation',async()=>{
+ const raw='She cares for a family of7. The account family of7_x remains valid.';
+ const translate=vi.fn(async(input:string)=>input);
+ await expect(translateChecked(raw,'en','zh',translate))
+  .resolves.toBe('She cares for a family of 7. The account family of7_x remains valid.');
+ await expect(translateChecked(raw,'en','ja',translate)).resolves.toBe(raw);
+});
