@@ -12,10 +12,12 @@ const draftSamples=40_000;
 const steadyDraftSamples=67_200;
 const finalSamples=160_000;
 const vadSamples=512;
+const maxPostCutGapSamples=12_800;
 
 /** Keeps a bounded interim window while the VAD owns final utterance boundaries. */
 export class SenseVoiceSession{
  private sample=0;private packetEndAt:number|null=null;private segment=0;private revision=0;private last='';private lastFinalSample=0;private vadOriginSample=0;
+ private retainPostCutAudio=false;
  private readonly vadWindow=new Float32Array(vadSamples);
  private vadOffset=0;
  private readonly window=new Float32Array(finalSamples);
@@ -42,8 +44,20 @@ export class SenseVoiceSession{
   const events:AsrEvent[]=[];
   while(!this.vad.isEmpty()){
    const segment=this.vad.front();
-   const {text,sourceRaw}=this.decodeFinal(segment.samples);
-   const start=this.vadOriginSample+segment.start,end=start+segment.samples.length;
+   const detectedStart=this.vadOriginSample+segment.start,end=detectedStart+segment.samples.length;
+   let start=detectedStart,samples=segment.samples;
+   // A VAD reset at a forced cut can omit the first syllables of the continuation.
+   // The capture window still owns those samples, with no overlap into the previous final.
+   const gap=segment.start;
+   if(this.retainPostCutAudio&&gap>0&&gap<=maxPostCutGapSamples&&gap<=this.windowSamples
+    &&this.sample-this.windowSamples===this.vadOriginSample){
+    samples=new Float32Array(gap+segment.samples.length);
+    samples.set(this.window.subarray(0,gap));
+    samples.set(segment.samples,gap);
+    start=this.vadOriginSample;
+   }
+   this.retainPostCutAudio=false;
+   const {text,sourceRaw}=this.decodeFinal(samples);
    if(meaningful(text))events.push(this.event('final',text,start,end,clock,sourceRaw));
    this.vad.pop();this.segment++;this.revision=0;this.last='';
    this.lastFinalSample=end;
@@ -75,7 +89,8 @@ export class SenseVoiceSession{
   const events=this.drain(clock);
   if(this.sample-this.lastFinalSample>=finalSamples){
    const {text,sourceRaw}=this.decodeFinal(this.voicedWindow());
-   if(meaningful(text))events.push({...this.event('final',text,this.sample-this.windowSamples,this.sample,clock,sourceRaw),splitReason:'max-duration'});
+   this.retainPostCutAudio=meaningful(text);
+   if(this.retainPostCutAudio)events.push({...this.event('final',text,this.sample-this.windowSamples,this.sample,clock,sourceRaw),splitReason:'max-duration'});
    this.vad.reset();this.vadOriginSample=this.sample;this.vadOffset=0;
    this.clearWindow();this.lastFinalSample=this.sample;this.segment++;this.revision=0;this.last='';
    return events;
@@ -101,7 +116,7 @@ export class SenseVoiceSession{
  }
  reset(sourceLanguage='auto'){
   this.vad.reset();this.sourceLanguage=sourceLanguage;this.sample=0;this.packetEndAt=null;this.segment++;
-  this.revision=0;this.last='';this.hasCaption=false;this.lastFinalSample=0;this.vadOriginSample=0;this.vadOffset=0;this.clearWindow();
+  this.revision=0;this.last='';this.hasCaption=false;this.lastFinalSample=0;this.vadOriginSample=0;this.vadOffset=0;this.retainPostCutAudio=false;this.clearWindow();
  }
  close(){if(this.closed)return;this.closed=true;this.vad.free();this.recognizer.free();}
 }

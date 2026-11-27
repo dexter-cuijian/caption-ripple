@@ -63,6 +63,35 @@ test('maps VAD segment times to the global capture clock after a forced split',(
  expect(events).toMatchObject([{phase:'final',segmentId:'1',start:10,end:10.5}]);
  session.close();
 });
+test('keeps captured audio before the first VAD segment after a forced cut',()=>{
+ const vad=new FakeVad(),decoded:Float32Array[]=[];
+ const session=new SenseVoiceSession(vad,{decode:samples=>{decoded.push(samples.slice());return 'speech';},free(){}});
+ for(let n=1;n<=105;n++)session.accept(packet(1000+n),{capturedAt:n*100,mediaTime:n/10},false);
+ vad.queue.push({start:8000,samples:new Float32Array(1600).fill(.5)});
+ const events=session.accept(packet(),{capturedAt:10600,mediaTime:10.6},false);
+ expect(events).toMatchObject([{phase:'final',segmentId:'1',start:10,end:10.6}]);
+ expect(decoded[1]).toHaveLength(9600);
+ expect(decoded[1][0]).toBeCloseTo(1101/32768,6);
+ expect(decoded[1][7999]).toBeCloseTo(1105/32768,6);
+ expect(decoded[1][8000]).toBe(.5);
+ vad.queue.push({start:11200,samples:new Float32Array(1600)});
+ expect(session.accept(packet(),{capturedAt:10800,mediaTime:10.8},false))
+  .toMatchObject([{phase:'final',segmentId:'2',start:10.7,end:10.8}]);
+ expect(decoded[2]).toHaveLength(1600);
+ session.close();
+});
+
+test('leaves longer gaps after a forced cut to the voice detector',()=>{
+ const vad=new FakeVad(),lengths:number[]=[];
+ const session=new SenseVoiceSession(vad,{decode:samples=>{lengths.push(samples.length);return 'speech';},free(){}});
+ for(let n=1;n<=109;n++)session.accept(packet(),{capturedAt:n*100,mediaTime:n/10},false);
+ vad.queue.push({start:14400,samples:new Float32Array(1600)});
+ expect(session.accept(packet(),{capturedAt:11000,mediaTime:11},false))
+  .toMatchObject([{phase:'final',start:10.9,end:11}]);
+ expect(lengths).toEqual([160000,1600]);
+ session.close();
+});
+
 test('does not decode or publish a forced caption for silence',()=>{
  const vad=new FakeVad();let calls=0;
  const session=new SenseVoiceSession(vad,{decode:()=>{calls++;return 'ghost';},free(){}});
