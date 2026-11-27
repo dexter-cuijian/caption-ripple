@@ -9,6 +9,7 @@ const detectedLanguage=(text:string)=>/[\uac00-\ud7af\u1100-\u11ff]/u.test(text)
 const meaningful=(text:string)=>/[\p{L}\p{N}]/u.test(text);
 const minVoiceRms=.0003;
 const draftSamples=40_000;
+const steadyDraftSamples=67_200;
 const finalSamples=160_000;
 const vadSamples=512;
 
@@ -79,8 +80,8 @@ export class SenseVoiceSession{
    this.clearWindow();this.lastFinalSample=this.sample;this.segment++;this.revision=0;this.last='';
    return events;
   }
-  // Earlier drafts only help before the first caption; later ones can sit behind the previous final.
-  const draftWindow=this.hasCaption?2*draftSamples:draftSamples*(this.draftAttempts+1);
+  // Limit provisional inference cost without shortening the final recognition window.
+  const draftWindow=this.hasCaption?steadyDraftSamples:draftSamples*(this.draftAttempts+1);
   const maxAttempts=this.hasCaption?1:2;
   if(allowDraft&&!this.last&&this.draftAttempts<maxAttempts&&this.windowSamples>=draftWindow){
    this.draftAttempts++;

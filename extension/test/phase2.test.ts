@@ -1,6 +1,7 @@
 import{expect,test,vi}from'vitest';
 import{mergeFinal,mergeTranslation,exportCaptions}from'../src/history';
 import{FinalTranslator,LiveTranslator,LanguageLock}from'../src/translation';
+import{continuationInput}from'../src/caption-context';
 const row=(revision=1)=>({type:'subtitle',phase:'final',sessionId:'s',epoch:2,segmentId:'a',revision,sourceText:'没有增长20%',sourceLanguage:'zh',targetLanguage:'en',mediaTime:10,start:0,end:1,url:'https://example.com/news',title:'News',createdAt:1,engine:'test'});
 test('only finals persist; source revision monotonic and translation patches one exact row',()=>{
  expect(mergeFinal(undefined,{...row(),phase:'interim'})).toBeUndefined();
@@ -159,4 +160,31 @@ test('a crossed glossary name does not overwrite independently translated rows',
  expect(outputs.map(event=>[event.segmentId,event.translationRevision,event.text])).toEqual([
   ['4',1,'孩子们在洪水里找到快乐。对于像 Ratini 这样的人，'],['5',1,'这类洪水现在很常见。']
  ]);
+});
+
+test.each([[' who','Like many'],['','Like many'],[' who','Many'],[' who like','Many'],[' who, like many',''],[' who, like many Indonesians','']])('completes a fronted comparison with %j then %j',async(ending,comparison)=>{
+ const calls:string[]=[];
+ const results:any[]=[];
+ const translator=new FinalTranslator({translate:async(text)=>{
+  calls.push(text);
+  return text.includes('this flooding is now routine. ZXQ8ZXQ Like many Indonesians, this person')
+   ?'孩子们在洪水里玩耍。对包括 Ratini 在内的数百万人来说，洪水已成常态。 ZXQ8ZXQ 和许多印度尼西亚人一样，这个人只用一个名字。'
+   :'独立译文';
+ }},event=>results.push(event),()=>{});
+ translator.reset('comparison',0);
+ const left={phase:'final',sessionId:'comparison',epoch:0,segmentId:'1',revision:1,sourceLanguage:'en',sourceText:`Children play in the water. For millions like 35 year old Ratini${ending}.`,start:0,end:10,engine:'sherpa-onnx/wasm-sensevoice-small-int8',splitReason:'max-duration'};
+ translator.enqueue(left,'zh');
+ translator.enqueue({...left,segmentId:'2',sourceText:`${comparison?comparison+' Indonesians ':ending.endsWith(' Indonesians')?'':'Indonesians '}goes by just one name, this flooding is now routine.`,start:10.1,end:17,splitReason:undefined},'zh');
+ await vi.waitFor(()=>expect(results.some(event=>event.segmentId==='2')).toBe(true));
+ expect(calls).toContain('Children play in the water. For millions like 35 year old Ratini, this flooding is now routine. ZXQ8ZXQ Like many Indonesians, this person goes by just one name.');
+ expect(results.slice(1).map(event=>[event.segmentId,event.text])).toEqual([
+  ['1','孩子们在洪水里玩耍。对包括 Ratini 在内的数百万人来说，洪水已成常态。'],
+  ['2','和许多印度尼西亚人一样，这个人只用一个名字。']
+ ]);
+});
+
+test('does not infer a comparison when both boundary cues are missing',()=>{
+ const left={sourceLanguage:'en',targetLanguage:'zh',engine:'sherpa-onnx/wasm-sensevoice-small-int8',splitReason:'max-duration',start:0,end:10,sourceText:'For many like Ratini.'};
+ const right={...left,sourceText:'Many Indonesians goes by just one name. This flooding is now routine.',start:10.1,end:14};
+ expect(continuationInput(left,right)).toBeUndefined();
 });

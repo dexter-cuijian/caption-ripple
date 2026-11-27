@@ -171,11 +171,13 @@ test('retries an empty early draft at the previous five-second boundary',()=>{
  expect(lengths).toEqual([40000,80000]);
  session.close();
 });
-test('only the first caption of an epoch uses the early draft window',()=>{
+test('bounds later provisional decodes to 4.2 seconds and keeps the final window intact',()=>{
  const lengths:number[]=[];
  const session=new SenseVoiceSession(new FakeVad(),{decode:samples=>{lengths.push(samples.length);return 'words';},free(){}});
- for(let n=1;n<=150;n++)session.accept(packet(),{capturedAt:n*100,mediaTime:n/10});
- expect(lengths).toEqual([40000,160000,80000]);
+ for(let n=1;n<142;n++)session.accept(packet(),{capturedAt:n*100,mediaTime:n/10});
+ expect(session.accept(packet(),{capturedAt:14200,mediaTime:14.2})).toMatchObject([{phase:'interim',start:10,end:14.2}]);
+ for(let n=143;n<=200;n++)session.accept(packet(),{capturedAt:n*100,mediaTime:n/10});
+ expect(lengths).toEqual([40000,160000,67200,160000]);
  session.reset();
  for(let n=1;n<=25;n++)session.accept(packet(),{capturedAt:n*100,mediaTime:n/10});
  expect(lengths.at(-1)).toBe(40000);
